@@ -5,12 +5,20 @@ import {
 } from "recharts";
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const INDICATOR_LABELS = {
+  rsi: "RSI",
   rsi_daily: "RSI Dag", rsi_weekly: "RSI Week", rsi_monthly: "RSI Maand",
-  ma200: "MA200", forward_pe: "Fwd P/E", peg: "PEG",
-  price_fcf: "P/FCF", momentum: "Momentum", dcf_discount: "DCF Korting",
+  rsi_divergence: "RSI Divergentie",
+  rsi_divergence_daily: "RSI Div. Dag", rsi_divergence_weekly: "RSI Div. Week", rsi_divergence_monthly: "RSI Div. Maand",
+  ma20: "MA20",
+  ma20_daily: "MA20 Dag", ma20_weekly: "MA20 Week", ma20_monthly: "MA20 Maand",
+  ma200: "MA200",
+  apz: "APZ",
+  apz_daily: "APZ Dag", apz_weekly: "APZ Week", apz_monthly: "APZ Maand",
+  forward_pe: "Fwd P/E", peg: "PEG", price_fcf: "P/FCF",
+  momentum: "Momentum", dcf_discount: "DCF Korting", panic: "Paniek",
 };
 
 const MOCK_DATA = {
@@ -43,6 +51,33 @@ const MOCK_HISTORY = Array.from({ length: 60 }, (_, i) => {
 const signalColor = (s) => s === "KOOP" || s === "INSTAP" ? "#22C55E" : s === "UITSTAP" ? "#EF4444" : "#F59E0B";
 const scoreColor  = (s) => s >= 65 ? "#22C55E" : s >= 45 ? "#F59E0B" : "#EF4444";
 const fmt = (price, currency) => currency === "KRW" ? `₩${price.toLocaleString()}` : `$${price.toFixed(2)}`;
+
+const signalDotColor = (s) =>
+  s === "OVERSOLD" || s === "BULLISH"   ? "#22C55E" :
+  s === "OVERBOUGHT" || s === "BEARISH" ? "#EF4444" :
+  s === "DICHTBIJ"                      ? "#F59E0B" : "#475569";
+
+function IndicatorTooltip({ tooltip, children }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span style={{ position: "relative" }}
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && tooltip && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+          background: "#0D1A2D", border: "1px solid #1E3A5F", borderRadius: 8,
+          padding: "10px 14px", fontSize: 11, color: "#94A3B8",
+          width: 280, lineHeight: 1.65, zIndex: 200,
+          pointerEvents: "none", boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          whiteSpace: "normal",
+        }}>
+          {tooltip}
+        </div>
+      )}
+    </span>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -355,17 +390,47 @@ export default function App() {
 
             <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
               <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 16 }}>INDICATOR SCORES (0 – 100)</div>
-              {Object.entries(selected.indicator_scores).map(([key, val]) => (
-                <div key={key} style={{ marginBottom: 13 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                    <span style={{ fontSize: 11, color: "#94A3B8" }}>{INDICATOR_LABELS[key] || key}</span>
-                    <span style={{ fontSize: 11, fontFamily: "'DM Mono'", color: scoreColor(val), fontWeight: 700 }}>{val}</span>
+              {Object.entries(selected.indicator_scores).map(([key, val]) => {
+                const interp   = selected.interpretations?.[key];
+                const indLabel = interp?.indicator_label || INDICATOR_LABELS[key] || key;
+                const desc     = interp?.label;
+                const tooltip  = interp?.tooltip;
+                const dotColor = signalDotColor(interp?.signal);
+                return (
+                  <div key={key} style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, alignItems: "flex-start", gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <IndicatorTooltip tooltip={tooltip}>
+                          <span style={{ fontSize: 11, color: "#94A3B8", display: "inline-flex", alignItems: "center", gap: 5, cursor: tooltip ? "help" : "default", flexWrap: "wrap" }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0, display: "inline-block" }} />
+                            {indLabel}
+                            {interp?.signal && interp.signal !== "NEUTRAAL" && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, fontFamily: "'DM Mono'",
+                                padding: "1px 6px", borderRadius: 4,
+                                background: dotColor + "22", color: dotColor,
+                                border: `1px solid ${dotColor}44`, letterSpacing: "0.04em",
+                              }}>
+                                {interp.signal}
+                              </span>
+                            )}
+                            {tooltip && <span style={{ fontSize: 9, color: "#475569" }}>ⓘ</span>}
+                          </span>
+                        </IndicatorTooltip>
+                        {desc && (
+                          <div style={{ fontSize: 9.5, color: "#475569", marginTop: 2, marginLeft: 11, fontStyle: "italic", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {desc}
+                          </div>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 11, fontFamily: "'DM Mono'", color: scoreColor(val), fontWeight: 700, flexShrink: 0 }}>{val}</span>
+                    </div>
+                    <div style={{ height: 5, borderRadius: 3, background: "#1E2D45", overflow: "hidden" }}>
+                      <div style={{ width: `${val}%`, height: "100%", background: `linear-gradient(90deg, ${scoreColor(val)}88, ${scoreColor(val)})`, borderRadius: 3, transition: "width 0.4s ease" }} />
+                    </div>
                   </div>
-                  <div style={{ height: 6, borderRadius: 3, background: "#1E2D45", overflow: "hidden" }}>
-                    <div style={{ width: `${val}%`, height: "100%", background: `linear-gradient(90deg, ${scoreColor(val)}88, ${scoreColor(val)})`, borderRadius: 3, transition: "width 0.4s ease" }} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               <div style={{ marginTop: 20, padding: 12, background: "#060C18", borderRadius: 8 }}>
                 <span style={{ fontSize: 11, color: "#94A3B8" }}>Totaal score: </span>
                 <span style={{ color: scoreColor(selected.total_score), fontWeight: 800, fontSize: 18, fontFamily: "'DM Mono'" }}>{selected.total_score}</span>
