@@ -9,6 +9,8 @@ etf_scores.json
 
 # Node
 node_modules/
+frontend/node_modules/
+frontend/dist/
 frontend/build/
 .env.local
 .env.production
