@@ -27,6 +27,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # ─────────────────────────────────────────────
+# IN-MEMORY CACHE
+# ─────────────────────────────────────────────
+
+_etf_cache: Optional[dict] = None
+_etf_cache_time: Optional[datetime] = None
+CACHE_DURATION_MINUTES = 60
+
+# ─────────────────────────────────────────────
 # CONFIGURATIE — pas gewichten hier aan
 # ─────────────────────────────────────────────
 
@@ -659,7 +667,14 @@ def get_score(ticker: str):
 
 
 @app.get("/etf")
-def get_etf():
+def get_etf(use_cache: bool = True):
+    global _etf_cache, _etf_cache_time
+
+    if use_cache and _etf_cache is not None and _etf_cache_time is not None:
+        age_minutes = (datetime.now() - _etf_cache_time).total_seconds() / 60
+        if age_minutes < CACHE_DURATION_MINUTES:
+            return {**_etf_cache, "cached": True, "cache_age_minutes": round(age_minutes, 1)}
+
     results = []
     for h in ETF_HOLDINGS:
         data  = fetch_stock_data(h["ticker"])
@@ -667,12 +682,15 @@ def get_etf():
         score["etf_weight"] = h["etf_weight"]
         results.append(score)
     summary = calculate_etf_score(results)
-    return {
+    response = {
         "summary":      summary,
         "holdings":     results,
         "config":       {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
         "generated_at": datetime.now().isoformat(),
     }
+    _etf_cache = response
+    _etf_cache_time = datetime.now()
+    return {**response, "cached": False, "cache_age_minutes": 0}
 
 
 @app.get("/config")

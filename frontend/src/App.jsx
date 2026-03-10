@@ -89,11 +89,12 @@ export default function App() {
   const [sortBy, setSortBy]     = useState("score");
   const [weights, setWeights]   = useState(MOCK_DATA.config.timeframe_weights);
   const [indWeights, setIndWeights] = useState(MOCK_DATA.config.indicator_weights);
+  const [useCache, setUseCache] = useState(true);
 
-  const fetchLiveData = useCallback(async () => {
+  const fetchLiveData = useCallback(async (cachePref = useCache) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/etf`);
+      const res = await fetch(`${API_BASE}/etf?use_cache=${cachePref}`);
       const json = await res.json();
       setData(json);
       setWeights(json.config.timeframe_weights);
@@ -105,7 +106,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [useCache]);
 
   // Probeer live data bij laden
   useEffect(() => { fetchLiveData(); }, [fetchLiveData]);
@@ -152,14 +153,31 @@ export default function App() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>ETF Intelligence Dashboard</div>
             <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'" }}>
-              {useMock ? "⚠ Mock data — start backend voor live data" : `Live • ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`}
+              {useMock
+                ? "⚠ Mock data — start backend voor live data"
+                : data.cached
+                  ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
+                  : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
+              }
             </div>
           </div>
         </div>
-        <button className="hov" onClick={fetchLiveData}
-          style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
-          {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <label title="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden."
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
+            <input type="checkbox" checked={useCache}
+              onChange={e => {
+                setUseCache(e.target.checked);
+                fetchLiveData(e.target.checked);
+              }}
+              style={{ accentColor: "#3B82F6", width: 14, height: 14, cursor: "pointer" }} />
+            ⚡ Cache
+          </label>
+          <button className="hov" onClick={() => fetchLiveData(useCache)}
+            style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
+            {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "20px" }}>
