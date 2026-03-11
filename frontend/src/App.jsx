@@ -100,6 +100,12 @@ export default function App() {
       setWeights(json.config.timeframe_weights);
       setIndWeights(json.config.indicator_weights);
       setUseMock(false);
+      const failed = json.holdings.filter(h => h.error);
+      if (failed.length > 0) {
+        console.warn(`[yfinance] ${failed.length}/${json.holdings.length} holdings hebben geen data (rate limiting?):`, failed.map(h => h.error).filter((v, i, a) => a.indexOf(v) === i));
+      } else {
+        console.info(`[yfinance] Alle ${json.holdings.length} holdings succesvol geladen.`);
+      }
     } catch (e) {
       console.warn("API niet bereikbaar, mock data gebruikt:", e);
       setUseMock(true);
@@ -242,7 +248,7 @@ export default function App() {
 
         {/* TABS */}
         <div style={{ display: "flex", borderBottom: "1px solid #1E2D45", marginBottom: 16 }}>
-          {[["overview","📋 Holdings"], ["weights","🎚️ Gewichten"], ["detail", selected ? `🔍 ${selected.ticker}` : "🔍 Detail"]].map(([id, label]) => (
+          {[["overview","📋 Holdings"], ["weights","🎚️ Gewichten"], ["detail", selected ? `🔍 ${selected.ticker ?? "Detail"}` : "🔍 Detail"]].map(([id, label]) => (
             <button key={id} className={`tab ${activeTab === id ? "on" : ""}`} onClick={() => setActiveTab(id)}
               style={{ padding: "10px 18px", color: activeTab === id ? "#93C5FD" : "#64748B", fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans'" }}>
               {label}
@@ -275,10 +281,10 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map(h => {
+                  {sorted.map((h, i) => {
                     const ma200dist = h.raw_data?.ma200 ? ((h.current_price - h.raw_data.ma200) / h.raw_data.ma200 * 100).toFixed(1) : null;
                     return (
-                      <tr key={h.ticker} className="hov" onClick={() => { setSelected(h); setActiveTab("detail"); }}
+                      <tr key={h.ticker ?? i} className="hov" onClick={() => { setSelected(h); setActiveTab("detail"); }}
                         style={{ borderTop: "1px solid #0F1C2E", background: selected?.ticker === h.ticker ? "#131B2E" : "transparent" }}>
                         <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontWeight: 600, fontSize: 13, color: "#93C5FD" }}>{h.ticker}</td>
                         <td style={{ padding: "11px 14px", fontSize: 12, color: "#94A3B8", whiteSpace: "nowrap" }}>{h.name}</td>
@@ -383,7 +389,7 @@ export default function App() {
                   {[["Dagelijks","daily"],["Wekelijks","weekly"],["Maandelijks","monthly"]].map(([label, key]) => (
                     <div key={key} style={{ background: "#060C18", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
                       <div style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 4 }}>{label.toUpperCase()}</div>
-                      <div style={{ fontSize: 24, fontWeight: 700, color: scoreColor(selected.scores_by_timeframe[key]), fontFamily: "'DM Mono'" }}>{selected.scores_by_timeframe[key]}</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: scoreColor(selected.scores_by_timeframe?.[key]), fontFamily: "'DM Mono'" }}>{selected.scores_by_timeframe?.[key] ?? "—"}</div>
                     </div>
                   ))}
                 </div>
@@ -395,7 +401,7 @@ export default function App() {
                     ["RSI (dag)", selected.raw_data?.rsi_daily?.toFixed(1), selected.raw_data?.rsi_daily < 30 ? "#22C55E" : selected.raw_data?.rsi_daily > 70 ? "#EF4444" : "#94A3B8"],
                     ["PEG Ratio", selected.raw_data?.peg_ratio?.toFixed(2), selected.raw_data?.peg_ratio < 1 ? "#22C55E" : selected.raw_data?.peg_ratio > 2 ? "#EF4444" : "#94A3B8"],
                     ["Forward P/E", selected.raw_data?.forward_pe?.toFixed(1), "#94A3B8"],
-                    ["Momentum 1m", `${selected.raw_data?.momentum_1m > 0 ? "+" : ""}${selected.raw_data?.momentum_1m?.toFixed(1)}%`, selected.raw_data?.momentum_1m > 0 ? "#22C55E" : "#EF4444"],
+                    ["Momentum 1m", selected.raw_data?.momentum_1m != null ? `${selected.raw_data.momentum_1m > 0 ? "+" : ""}${selected.raw_data.momentum_1m.toFixed(1)}%` : "—", selected.raw_data?.momentum_1m > 0 ? "#22C55E" : "#EF4444"],
                     ["MA200", fmt(selected.raw_data?.ma200, selected.currency), "#94A3B8"],
                     ["ETF Weging", `${(selected.etf_weight * 100).toFixed(2)}%`, "#60A5FA"],
                   ].map(([label, val, color]) => (
@@ -410,7 +416,7 @@ export default function App() {
 
             <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
               <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 16 }}>INDICATOR SCORES (0 – 100)</div>
-              {Object.entries(selected.indicator_scores).map(([key, val]) => {
+              {Object.entries(selected.indicator_scores ?? {}).map(([key, val]) => {
                 const interp   = selected.interpretations?.[key];
                 const indLabel = interp?.indicator_label || INDICATOR_LABELS[key] || key;
                 const desc     = interp?.label;
