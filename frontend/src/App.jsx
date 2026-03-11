@@ -50,7 +50,7 @@ const MOCK_HISTORY = Array.from({ length: 60 }, (_, i) => {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const signalColor = (s) => s === "KOOP" || s === "INSTAP" ? "#22C55E" : s === "UITSTAP" ? "#EF4444" : "#F59E0B";
 const scoreColor  = (s) => s >= 65 ? "#22C55E" : s >= 45 ? "#F59E0B" : "#EF4444";
-const fmt = (price, currency) => currency === "KRW" ? `₩${price.toLocaleString()}` : `$${price.toFixed(2)}`;
+const fmt = (price, currency) => price == null ? "—" : currency === "KRW" ? `₩${price.toLocaleString()}` : `$${price.toFixed(2)}`;
 
 const signalDotColor = (s) =>
   s === "OVERSOLD" || s === "BULLISH"   ? "#22C55E" :
@@ -276,7 +276,7 @@ export default function App() {
                 </thead>
                 <tbody>
                   {sorted.map(h => {
-                    const ma200dist = h.raw_data.ma200 ? ((h.current_price - h.raw_data.ma200) / h.raw_data.ma200 * 100).toFixed(1) : null;
+                    const ma200dist = h.raw_data?.ma200 ? ((h.current_price - h.raw_data.ma200) / h.raw_data.ma200 * 100).toFixed(1) : null;
                     return (
                       <tr key={h.ticker} className="hov" onClick={() => { setSelected(h); setActiveTab("detail"); }}
                         style={{ borderTop: "1px solid #0F1C2E", background: selected?.ticker === h.ticker ? "#131B2E" : "transparent" }}>
@@ -295,13 +295,13 @@ export default function App() {
                         <td style={{ padding: "11px 14px" }}>
                           <span className="badge" style={{ background: signalColor(h.signal)+"20", color: signalColor(h.signal), border: `1px solid ${signalColor(h.signal)}40` }}>{h.signal}</span>
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data.rsi_daily < 30 ? "#22C55E" : h.raw_data.rsi_daily > 70 ? "#EF4444" : "#94A3B8" }}>
-                          {h.raw_data.rsi_daily?.toFixed(1)}
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data?.rsi_daily < 30 ? "#22C55E" : h.raw_data?.rsi_daily > 70 ? "#EF4444" : "#94A3B8" }}>
+                          {h.raw_data?.rsi_daily?.toFixed(1)}
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data.peg_ratio < 1 ? "#22C55E" : h.raw_data.peg_ratio > 2 ? "#EF4444" : "#94A3B8" }}>
-                          {h.raw_data.peg_ratio?.toFixed(2)}
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data?.peg_ratio < 1 ? "#22C55E" : h.raw_data?.peg_ratio > 2 ? "#EF4444" : "#94A3B8" }}>
+                          {h.raw_data?.peg_ratio?.toFixed(2)}
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: "#94A3B8" }}>{h.raw_data.forward_pe?.toFixed(1)}</td>
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: "#94A3B8" }}>{h.raw_data?.forward_pe?.toFixed(1)}</td>
                         <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: ma200dist && parseFloat(ma200dist) < 5 ? "#22C55E" : ma200dist && parseFloat(ma200dist) > 30 ? "#EF4444" : "#94A3B8" }}>
                           {ma200dist ? `+${ma200dist}%` : "—"}
                         </td>
@@ -392,11 +392,11 @@ export default function App() {
                 <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 12 }}>RAW DATA</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {[
-                    ["RSI (dag)", selected.raw_data.rsi_daily?.toFixed(1), selected.raw_data.rsi_daily < 30 ? "#22C55E" : selected.raw_data.rsi_daily > 70 ? "#EF4444" : "#94A3B8"],
-                    ["PEG Ratio", selected.raw_data.peg_ratio?.toFixed(2), selected.raw_data.peg_ratio < 1 ? "#22C55E" : selected.raw_data.peg_ratio > 2 ? "#EF4444" : "#94A3B8"],
-                    ["Forward P/E", selected.raw_data.forward_pe?.toFixed(1), "#94A3B8"],
-                    ["Momentum 1m", `${selected.raw_data.momentum_1m > 0 ? "+" : ""}${selected.raw_data.momentum_1m?.toFixed(1)}%`, selected.raw_data.momentum_1m > 0 ? "#22C55E" : "#EF4444"],
-                    ["MA200", fmt(selected.raw_data.ma200, selected.currency), "#94A3B8"],
+                    ["RSI (dag)", selected.raw_data?.rsi_daily?.toFixed(1), selected.raw_data?.rsi_daily < 30 ? "#22C55E" : selected.raw_data?.rsi_daily > 70 ? "#EF4444" : "#94A3B8"],
+                    ["PEG Ratio", selected.raw_data?.peg_ratio?.toFixed(2), selected.raw_data?.peg_ratio < 1 ? "#22C55E" : selected.raw_data?.peg_ratio > 2 ? "#EF4444" : "#94A3B8"],
+                    ["Forward P/E", selected.raw_data?.forward_pe?.toFixed(1), "#94A3B8"],
+                    ["Momentum 1m", `${selected.raw_data?.momentum_1m > 0 ? "+" : ""}${selected.raw_data?.momentum_1m?.toFixed(1)}%`, selected.raw_data?.momentum_1m > 0 ? "#22C55E" : "#EF4444"],
+                    ["MA200", fmt(selected.raw_data?.ma200, selected.currency), "#94A3B8"],
                     ["ETF Weging", `${(selected.etf_weight * 100).toFixed(2)}%`, "#60A5FA"],
                   ].map(([label, val, color]) => (
                     <div key={label} style={{ background: "#060C18", borderRadius: 6, padding: "8px 12px" }}>
