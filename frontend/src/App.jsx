@@ -106,9 +106,9 @@ export default function App() {
       setUseMock(false);
       const failed = json.holdings.filter(h => h.error);
       if (failed.length > 0) {
-        console.warn(`[yfinance] ${failed.length}/${json.holdings.length} holdings hebben geen data (rate limiting?):`, failed.map(h => h.error).filter((v, i, a) => a.indexOf(v) === i));
+        console.warn(`[FMP] ${failed.length}/${json.holdings.length} holdings niet beschikbaar:`, failed.map(h => h.error).filter((v, i, a) => a.indexOf(v) === i));
       } else {
-        console.info(`[yfinance] Alle ${json.holdings.length} holdings succesvol geladen.`);
+        console.info(`[FMP] Alle ${json.holdings.length} holdings succesvol geladen.`);
       }
     } catch (e) {
       console.warn("API niet bereikbaar, mock data gebruikt:", e);
