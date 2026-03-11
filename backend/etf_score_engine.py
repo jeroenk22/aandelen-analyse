@@ -38,7 +38,7 @@ except ImportError:
 # ─────────────────────────────────────────────
 
 FMP_API_KEY = os.getenv("FMP_API_KEY", "demo")
-FMP_BASE = "https://financialmodelingprep.com/api/v3"
+FMP_BASE = "https://financialmodelingprep.com/stable"
 
 if FMP_API_KEY == "demo":
     print("⚠ Geen FMP_API_KEY gevonden — stel FMP_API_KEY in via .env of omgevingsvariabele.")
@@ -171,7 +171,7 @@ def _fmp_get(path: str, params: dict = None):
 
 def resolve_isin_to_ticker(isin: str) -> Optional[str]:
     """Zet ISIN om naar beursticker via FMP zoekfunctie."""
-    data = _fmp_get("/search", {"query": isin, "limit": 5})
+    data = _fmp_get("/search-symbol", {"query": isin, "limit": 5})
     if not data or not isinstance(data, list):
         return None
     # Prefereer exacte ISIN match, anders eerste resultaat
@@ -183,7 +183,7 @@ def resolve_isin_to_ticker(isin: str) -> Optional[str]:
 
 def fetch_etf_holdings(ticker: str, top_n: int = 10) -> list:
     """Haal de top N holdings van een ETF op via FMP, gesorteerd op gewicht."""
-    data = _fmp_get(f"/etf-holder/{ticker}")
+    data = _fmp_get("/etf-holder", {"symbol": ticker})
     if not data or not isinstance(data, list):
         return []
     sorted_holdings = sorted(
@@ -477,7 +477,7 @@ def _interp_apz(price, apz_lo, apz_up, tf: str) -> dict:
 def fetch_stock_data(ticker: str) -> dict:
     try:
         # ── 1. Profiel (naam, sector, valuta, marktkapitalisatie) ──
-        profile_data = _fmp_get(f"/profile/{ticker}")
+        profile_data = _fmp_get("/profile", {"symbol": ticker})
         if not profile_data or not isinstance(profile_data, list):
             return None
         profile = profile_data[0]
@@ -486,8 +486,8 @@ def fetch_stock_data(ticker: str) -> dict:
         three_years_ago = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
         today = datetime.now().strftime("%Y-%m-%d")
         hist_data = _fmp_get(
-            f"/historical-price-full/{ticker}",
-            {"from": three_years_ago, "to": today},
+            "/historical-price-eod/full",
+            {"symbol": ticker, "from": three_years_ago, "to": today},
         )
         if not hist_data or "historical" not in hist_data or not hist_data["historical"]:
             return None
@@ -505,7 +505,7 @@ def fetch_stock_data(ticker: str) -> dict:
         price = float(hist["Close"].iloc[-1])
 
         # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
-        ratios_data = _fmp_get(f"/ratios-ttm/{ticker}")
+        ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
         ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
 
         tpe  = ratios.get("peRatioTTM")
@@ -513,7 +513,7 @@ def fetch_stock_data(ticker: str) -> dict:
         pfcf = ratios.get("priceToFreeCashFlowsRatioTTM")
 
         # ── 4. Kasstroomoverzicht (FCF voor DCF-berekening) ────────
-        cf_data = _fmp_get(f"/cash-flow-statement/{ticker}", {"limit": 1})
+        cf_data = _fmp_get("/cash-flow-statement", {"symbol": ticker, "limit": 1})
         cf = cf_data[0] if cf_data and isinstance(cf_data, list) else {}
         fcf = float(cf.get("freeCashFlow", 0) or 0)
 

@@ -50,7 +50,7 @@ const MOCK_HISTORY = Array.from({ length: 60 }, (_, i) => {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const signalColor = (s) => s === "KOOP" || s === "INSTAP" ? "#22C55E" : s === "UITSTAP" ? "#EF4444" : "#F59E0B";
 const scoreColor  = (s) => s >= 65 ? "#22C55E" : s >= 45 ? "#F59E0B" : "#EF4444";
-const fmt = (price, currency) => currency === "KRW" ? `₩${price.toLocaleString()}` : `$${price.toFixed(2)}`;
+const fmt = (price, currency) => price == null ? "—" : currency === "KRW" ? `₩${price.toLocaleString()}` : `$${price.toFixed(2)}`;
 
 const signalDotColor = (s) =>
   s === "OVERSOLD" || s === "BULLISH"   ? "#22C55E" :
@@ -116,8 +116,10 @@ export default function App() {
 
   // Live ETF score herberekening op basis van slider
   const liveScore = (() => {
-    const tw = data.holdings.reduce((s, h) => s + h.etf_weight, 0);
-    return Math.round(data.holdings.reduce((acc, h) => {
+    const validHoldings = data.holdings.filter(h => h.scores_by_timeframe);
+    const tw = validHoldings.reduce((s, h) => s + h.etf_weight, 0);
+    if (tw === 0) return 0;
+    return Math.round(validHoldings.reduce((acc, h) => {
       const s = weights.daily * h.scores_by_timeframe.daily +
                 weights.weekly * h.scores_by_timeframe.weekly +
                 weights.monthly * h.scores_by_timeframe.monthly;
