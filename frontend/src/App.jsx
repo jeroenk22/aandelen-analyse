@@ -113,8 +113,10 @@ export default function App() {
 
   // Live ETF score herberekening op basis van slider
   const liveScore = (() => {
-    const tw = data.holdings.reduce((s, h) => s + h.etf_weight, 0);
-    return Math.round(data.holdings.reduce((acc, h) => {
+    const validHoldings = data.holdings.filter(h => h.scores_by_timeframe);
+    const tw = validHoldings.reduce((s, h) => s + h.etf_weight, 0);
+    if (tw === 0) return 0;
+    return Math.round(validHoldings.reduce((acc, h) => {
       const s = weights.daily * h.scores_by_timeframe.daily +
                 weights.weekly * h.scores_by_timeframe.weekly +
                 weights.monthly * h.scores_by_timeframe.monthly;
