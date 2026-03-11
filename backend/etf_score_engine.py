@@ -489,11 +489,14 @@ def fetch_stock_data(ticker: str) -> dict:
             "/historical-price-eod/full",
             {"symbol": ticker, "from": three_years_ago, "to": today},
         )
-        if not hist_data or "historical" not in hist_data or not hist_data["historical"]:
+        # Stable API geeft een lijst terug; v3 API gaf {"historical": [...]}
+        if isinstance(hist_data, dict):
+            hist_data = hist_data.get("historical", [])
+        if not hist_data or not isinstance(hist_data, list):
             return None
 
         # FMP geeft nieuwste-eerst terug → omkeren naar oudste-eerst
-        hist_list = list(reversed(hist_data["historical"]))
+        hist_list = list(reversed(hist_data))
         hist = pd.DataFrame(hist_list)
         hist["date"] = pd.to_datetime(hist["date"])
         hist = hist.set_index("date")
@@ -508,27 +511,16 @@ def fetch_stock_data(ticker: str) -> dict:
         ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
         ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
 
-        tpe  = ratios.get("peRatioTTM")
-        peg  = ratios.get("pegRatioTTM")
-        pfcf = ratios.get("priceToFreeCashFlowsRatioTTM")
-
-        # ── 4. Kasstroomoverzicht (FCF voor DCF-berekening) ────────
-        cf_data = _fmp_get("/cash-flow-statement", {"symbol": ticker, "limit": 1})
-        cf = cf_data[0] if cf_data and isinstance(cf_data, list) else {}
-        fcf = float(cf.get("freeCashFlow", 0) or 0)
+        tpe      = ratios.get("priceToEarningsRatioTTM")
+        peg      = ratios.get("priceToEarningsGrowthRatioTTM")
+        pfcf     = ratios.get("priceToFreeCashFlowRatioTTM")
+        fcf_ps_r = ratios.get("freeCashFlowPerShareTTM")  # FCF per aandeel uit ratios
 
         # ── Fundamentals berekenen ─────────────────────────────────
-        mc     = float(profile.get("mktCap", 0) or 0)
-        shares = float(profile.get("sharesOutstanding", 0) or 0)
+        fpe    = tpe  # gebruik TTM P/E als forward P/E-benadering
+        dcf_fv = float(fcf_ps_r) * 25 if fcf_ps_r else None
 
-        fpe = tpe  # gebruik TTM P/E als forward P/E-benadering
-        if not pfcf and mc and fcf > 0:
-            pfcf = mc / fcf  # fallback: marktkapitalisatie / FCF
-
-        fcf_ps = (fcf / shares) if fcf and shares > 0 else None
-        dcf_fv = fcf_ps * 25 if fcf_ps else None
-
-        hist_pe   = tpe * 0.95 if tpe else (fpe * 1.1 if fpe else None)
+        hist_pe   = tpe * 0.95 if tpe else None
         hist_pfcf = pfcf * 1.05 if pfcf else None
 
         # ── Technische indicatoren ─────────────────────────────────
@@ -584,7 +576,7 @@ def fetch_stock_data(ticker: str) -> dict:
 
         return {
             "ticker":               ticker,
-            "name":                 profile.get("companyName", ticker),
+            "name":                 profile.get("companyName") or profile.get("name", ticker),
             "sector":               profile.get("sector", "Technology"),
             "current_price":        round(price, 2),
             "currency":             profile.get("currency", "USD"),
