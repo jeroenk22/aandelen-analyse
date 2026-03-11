@@ -57,15 +57,18 @@ const signalDotColor = (s) =>
   s === "OVERBOUGHT" || s === "BEARISH" ? "#EF4444" :
   s === "DICHTBIJ"                      ? "#F59E0B" : "#475569";
 
-function IndicatorTooltip({ tooltip, children }) {
+function IndicatorTooltip({ tooltip, children, direction = "up" }) {
   const [show, setShow] = useState(false);
+  const pos = direction === "down"
+    ? { top: "calc(100% + 8px)", right: 0 }
+    : { bottom: "calc(100% + 8px)", left: 0 };
   return (
     <span style={{ position: "relative" }}
       onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
       {children}
       {show && tooltip && (
         <div style={{
-          position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+          position: "absolute", ...pos,
           background: "#0D1A2D", border: "1px solid #1E3A5F", borderRadius: 8,
           padding: "10px 14px", fontSize: 11, color: "#94A3B8",
           width: 280, lineHeight: 1.65, zIndex: 200,
@@ -207,16 +210,17 @@ export default function App() {
         </form>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <label title="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden."
-            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
-            <input type="checkbox" checked={useCache}
-              onChange={e => {
-                setUseCache(e.target.checked);
-                fetchLiveData(e.target.checked);
-              }}
-              style={{ accentColor: "#3B82F6", width: 14, height: 14, cursor: "pointer" }} />
-            ⚡ Cache
-          </label>
+          <IndicatorTooltip tooltip="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden." direction="down">
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
+              <input type="checkbox" checked={useCache}
+                onChange={e => {
+                  setUseCache(e.target.checked);
+                  fetchLiveData(e.target.checked);
+                }}
+                style={{ accentColor: "#3B82F6", width: 14, height: 14, cursor: "pointer" }} />
+              ⚡ Cache
+            </label>
+          </IndicatorTooltip>
           <button className="hov" onClick={() => fetchLiveData(useCache)}
             style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
             {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
@@ -261,7 +265,11 @@ export default function App() {
               ].map((s, i) => (
                 <div key={i} style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 10, padding: "12px 14px" }}>
                   <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontFamily: "'DM Mono'" }}>{s.label.toUpperCase()}</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: s.color, fontFamily: "'DM Mono'" }}>{s.icon} {s.value}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {s.color !== "#60A5FA" && <span style={{ display: "inline-block", width: 16, height: 16, borderRadius: "50%", background: s.color, flexShrink: 0 }} />}
+                    {s.color === "#60A5FA" && <span style={{ fontSize: 20 }}>{s.icon}</span>}
+                    <span style={{ fontSize: 26, fontWeight: 800, color: s.color, fontFamily: "'DM Mono'" }}>{s.value}</span>
+                  </div>
                 </div>
               ))}
             </div>
