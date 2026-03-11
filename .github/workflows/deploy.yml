@@ -1,0 +1,27 @@
+name: Deploy naar Oracle Cloud
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "backend/**"
+
+jobs:
+  deploy:
+    name: Deploy backend naar Oracle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            cd ~/aandelen-analyse
+            git pull origin master
+            source backend/venv/bin/activate
+            pip install -r backend/requirements.txt
+            sudo systemctl restart etf-backend
