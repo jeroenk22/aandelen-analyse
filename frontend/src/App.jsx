@@ -90,21 +90,25 @@ export default function App() {
   const [weights, setWeights]   = useState(MOCK_DATA.config.timeframe_weights);
   const [indWeights, setIndWeights] = useState(MOCK_DATA.config.indicator_weights);
   const [useCache, setUseCache] = useState(true);
+  const [tickerInput, setTickerInput] = useState("");
+  const [activeTickers, setActiveTickers] = useState("");
 
-  const fetchLiveData = useCallback(async (cachePref = useCache) => {
+  const fetchLiveData = useCallback(async (cachePref = useCache, tickers = activeTickers) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/etf?use_cache=${cachePref}`);
+      const tickersParam = tickers ? `&tickers=${encodeURIComponent(tickers)}` : "";
+      const res = await fetch(`${API_BASE}/etf?use_cache=${cachePref}${tickersParam}`);
       const json = await res.json();
+      if (json.error) throw new Error(json.error);
       setData(json);
       setWeights(json.config.timeframe_weights);
       setIndWeights(json.config.indicator_weights);
       setUseMock(false);
       const failed = json.holdings.filter(h => h.error);
       if (failed.length > 0) {
-        console.warn(`[yfinance] ${failed.length}/${json.holdings.length} holdings hebben geen data (rate limiting?):`, failed.map(h => h.error).filter((v, i, a) => a.indexOf(v) === i));
+        console.warn(`[FMP] ${failed.length}/${json.holdings.length} holdings niet beschikbaar:`, failed.map(h => h.error).filter((v, i, a) => a.indexOf(v) === i));
       } else {
-        console.info(`[yfinance] Alle ${json.holdings.length} holdings succesvol geladen.`);
+        console.info(`[FMP] Alle ${json.holdings.length} holdings succesvol geladen.`);
       }
     } catch (e) {
       console.warn("API niet bereikbaar, mock data gebruikt:", e);
@@ -119,7 +123,7 @@ export default function App() {
 
   // Live ETF score herberekening op basis van slider
   const liveScore = (() => {
-    const validHoldings = data.holdings.filter(h => h.scores_by_timeframe);
+    const validHoldings = (data.holdings || []).filter(h => h.scores_by_timeframe);
     const tw = validHoldings.reduce((s, h) => s + h.etf_weight, 0);
     if (tw === 0) return 0;
     return Math.round(validHoldings.reduce((acc, h) => {
@@ -131,7 +135,7 @@ export default function App() {
   })();
   const liveSignal = liveScore >= 65 ? "INSTAP" : liveScore < 45 ? "UITSTAP" : "AFWACHTEN";
 
-  const sorted = [...data.holdings].sort((a, b) =>
+  const sorted = [...(data.holdings || [])].filter(h => !h.error).sort((a, b) =>
     sortBy === "score"  ? b.total_score - a.total_score :
     sortBy === "weight" ? b.etf_weight - a.etf_weight :
     a.ticker.localeCompare(b.ticker)
@@ -167,9 +171,41 @@ export default function App() {
                   ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
                   : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
               }
+              {activeTickers && <span style={{ color: "#3B82F6", marginLeft: 8 }}>· {activeTickers}</span>}
             </div>
           </div>
         </div>
+        {/* TICKER INVOER */}
+        <form onSubmit={e => {
+          e.preventDefault();
+          const trimmed = tickerInput.trim().toUpperCase();
+          setActiveTickers(trimmed);
+          fetchLiveData(useCache, trimmed);
+        }} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="text"
+            value={tickerInput}
+            onChange={e => setTickerInput(e.target.value)}
+            placeholder="Tickers (bijv. AAPL, MSFT, NVDA)"
+            style={{
+              padding: "7px 12px", borderRadius: 6, background: "#060C18",
+              border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
+              fontFamily: "'DM Mono'", width: 260, outline: "none",
+            }}
+          />
+          <button type="submit" className="hov"
+            style={{ padding: "7px 12px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
+            Analyseer
+          </button>
+          {activeTickers && (
+            <button type="button" className="hov" onClick={() => {
+              setActiveTickers(""); setTickerInput(""); fetchLiveData(useCache, "");
+            }} style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12 }}>
+              ✕
+            </button>
+          )}
+        </form>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <label title="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden."
             style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
@@ -282,7 +318,8 @@ export default function App() {
                 </thead>
                 <tbody>
                   {sorted.map((h, i) => {
-                    const ma200dist = h.raw_data?.ma200 ? ((h.current_price - h.raw_data.ma200) / h.raw_data.ma200 * 100).toFixed(1) : null;
+                    const rd = h.raw_data || {};
+                    const ma200dist = rd.ma200 ? ((h.current_price - rd.ma200) / rd.ma200 * 100).toFixed(1) : null;
                     return (
                       <tr key={h.ticker ?? i} className="hov" onClick={() => { setSelected(h); setActiveTab("detail"); }}
                         style={{ borderTop: "1px solid #0F1C2E", background: selected?.ticker === h.ticker ? "#131B2E" : "transparent" }}>
@@ -301,13 +338,13 @@ export default function App() {
                         <td style={{ padding: "11px 14px" }}>
                           <span className="badge" style={{ background: signalColor(h.signal)+"20", color: signalColor(h.signal), border: `1px solid ${signalColor(h.signal)}40` }}>{h.signal}</span>
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data?.rsi_daily < 30 ? "#22C55E" : h.raw_data?.rsi_daily > 70 ? "#EF4444" : "#94A3B8" }}>
-                          {h.raw_data?.rsi_daily?.toFixed(1)}
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: rd.rsi_daily < 30 ? "#22C55E" : rd.rsi_daily > 70 ? "#EF4444" : "#94A3B8" }}>
+                          {rd.rsi_daily?.toFixed(1)}
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: h.raw_data?.peg_ratio < 1 ? "#22C55E" : h.raw_data?.peg_ratio > 2 ? "#EF4444" : "#94A3B8" }}>
-                          {h.raw_data?.peg_ratio?.toFixed(2)}
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: rd.peg_ratio < 1 ? "#22C55E" : rd.peg_ratio > 2 ? "#EF4444" : "#94A3B8" }}>
+                          {rd.peg_ratio?.toFixed(2)}
                         </td>
-                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: "#94A3B8" }}>{h.raw_data?.forward_pe?.toFixed(1)}</td>
+                        <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: "#94A3B8" }}>{rd.forward_pe?.toFixed(1)}</td>
                         <td style={{ padding: "11px 14px", fontFamily: "'DM Mono'", fontSize: 12, color: ma200dist && parseFloat(ma200dist) < 5 ? "#22C55E" : ma200dist && parseFloat(ma200dist) > 30 ? "#EF4444" : "#94A3B8" }}>
                           {ma200dist ? `+${ma200dist}%` : "—"}
                         </td>
@@ -317,6 +354,11 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+            {(data.holdings || []).filter(h => h.error).length > 0 && (
+              <div style={{ marginTop: 10, padding: "10px 14px", background: "#1A0A0A", border: "1px solid #3B1010", borderRadius: 8, fontSize: 11, color: "#F87171" }}>
+                Niet beschikbaar: {(data.holdings || []).filter(h => h.error).map(h => h.ticker || "?").join(", ")} — {(data.holdings || []).find(h => h.error)?.error}
+              </div>
+            )}
           </div>
         )}
 
