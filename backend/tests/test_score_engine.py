@@ -246,8 +246,8 @@ FAKE_HOLDINGS_DATA = [mock_stock_data(h["ticker"]) for h in engine.ETF_HOLDINGS]
 
 
 def _reset_cache():
-    engine._etf_cache = None
-    engine._etf_cache_time = None
+    engine._etf_cache.clear()
+    engine._etf_cache_time.clear()
 
 
 def _make_mock_fetch(data_list):
@@ -291,7 +291,7 @@ class TestCacheLogica:
         # Stel cache in met verouderde timestamp (70 minuten geleden)
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
-        engine._etf_cache_time = datetime.now() - timedelta(minutes=70)
+        engine._etf_cache_time["default"] = datetime.now() - timedelta(minutes=70)
 
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)) as mock_fn:
             res = client.get("/etf?use_cache=true")
@@ -310,7 +310,7 @@ class TestCacheLogica:
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
         # Manipuleer timestamp: 5 minuten geleden
-        engine._etf_cache_time = datetime.now() - timedelta(minutes=5)
+        engine._etf_cache_time["default"] = datetime.now() - timedelta(minutes=5)
         res = client.get("/etf?use_cache=true")
         age = res.json()["cache_age_minutes"]
         assert 4.9 <= age <= 5.5

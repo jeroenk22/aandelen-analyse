@@ -16,22 +16,39 @@ API endpoints:
 """
 
 import json
-from datetime import datetime
-from typing import Optional
+import os
+from datetime import datetime, timedelta
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # ─────────────────────────────────────────────
-# IN-MEMORY CACHE
+# FMP API CONFIGURATIE
 # ─────────────────────────────────────────────
 
-_etf_cache: Optional[dict] = None
-_etf_cache_time: Optional[datetime] = None
+FMP_API_KEY = os.getenv("FMP_API_KEY", "demo")
+FMP_BASE = "https://financialmodelingprep.com/api/v3"
+
+if FMP_API_KEY == "demo":
+    print("⚠ Geen FMP_API_KEY gevonden — stel FMP_API_KEY in via .env of omgevingsvariabele.")
+
+# ─────────────────────────────────────────────
+# IN-MEMORY CACHE (per ISIN of 'default')
+# ─────────────────────────────────────────────
+
+_etf_cache: Dict[str, dict] = {}
+_etf_cache_time: Dict[str, datetime] = {}
 CACHE_DURATION_MINUTES = 60
 
 # ─────────────────────────────────────────────
@@ -133,6 +150,56 @@ ETF_HOLDINGS = [
     {"ticker": "META",      "name": "Meta Platforms",          "etf_weight": 0.0123},
     {"ticker": "005930.KS", "name": "Samsung Electronics",     "etf_weight": 0.0111},
 ]
+
+
+# ─────────────────────────────────────────────
+# FMP HULPFUNCTIES
+# ─────────────────────────────────────────────
+
+def _fmp_get(path: str, params: dict = None):
+    """GET request naar FMP API. Geeft None bij fout."""
+    url = f"{FMP_BASE}{path}"
+    p = {"apikey": FMP_API_KEY, **(params or {})}
+    try:
+        resp = requests.get(url, params=p, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"  ⚠ FMP API fout ({path}): {e}")
+        return None
+
+
+def resolve_isin_to_ticker(isin: str) -> Optional[str]:
+    """Zet ISIN om naar beursticker via FMP zoekfunctie."""
+    data = _fmp_get("/search", {"query": isin, "limit": 5})
+    if not data or not isinstance(data, list):
+        return None
+    # Prefereer exacte ISIN match, anders eerste resultaat
+    for item in data:
+        if item.get("isin") == isin:
+            return item["symbol"]
+    return data[0]["symbol"] if data else None
+
+
+def fetch_etf_holdings(ticker: str, top_n: int = 10) -> list:
+    """Haal de top N holdings van een ETF op via FMP, gesorteerd op gewicht."""
+    data = _fmp_get(f"/etf-holder/{ticker}")
+    if not data or not isinstance(data, list):
+        return []
+    sorted_holdings = sorted(
+        data, key=lambda x: x.get("weightPercentage", 0) or 0, reverse=True
+    )
+    if len(data) > top_n:
+        print(f"  ℹ ETF {ticker} heeft {len(data)} holdings — top {top_n} geselecteerd op gewicht")
+    result = []
+    for h in sorted_holdings[:top_n]:
+        result.append({
+            "ticker": h.get("asset", ""),
+            "name": h.get("name", h.get("asset", "")),
+            # FMP geeft gewicht als percentage (bijv. 5.4), omzetten naar decimaal (0.054)
+            "etf_weight": round((h.get("weightPercentage", 0) or 0) / 100, 6),
+        })
+    return [h for h in result if h["ticker"]]
 
 
 # ─────────────────────────────────────────────
@@ -409,14 +476,62 @@ def _interp_apz(price, apz_lo, apz_up, tf: str) -> dict:
 
 def fetch_stock_data(ticker: str) -> dict:
     try:
-        stock = yf.Ticker(ticker)
-        info  = stock.info
-        hist  = stock.history(period="3y")
-        if hist.empty:
+        # ── 1. Profiel (naam, sector, valuta, marktkapitalisatie) ──
+        profile_data = _fmp_get(f"/profile/{ticker}")
+        if not profile_data or not isinstance(profile_data, list):
+            return None
+        profile = profile_data[0]
+
+        # ── 2. Koersgeschiedenis (3 jaar dagelijks) ────────────────
+        three_years_ago = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
+        hist_data = _fmp_get(
+            f"/historical-price-full/{ticker}",
+            {"from": three_years_ago, "to": today},
+        )
+        if not hist_data or "historical" not in hist_data or not hist_data["historical"]:
             return None
 
-        price = hist["Close"].iloc[-1]
+        # FMP geeft nieuwste-eerst terug → omkeren naar oudste-eerst
+        hist_list = list(reversed(hist_data["historical"]))
+        hist = pd.DataFrame(hist_list)
+        hist["date"] = pd.to_datetime(hist["date"])
+        hist = hist.set_index("date")
+        hist = hist.rename(columns={"close": "Close", "volume": "Volume"})
 
+        if len(hist) < 20:
+            return None
+
+        price = float(hist["Close"].iloc[-1])
+
+        # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
+        ratios_data = _fmp_get(f"/ratios-ttm/{ticker}")
+        ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
+
+        tpe  = ratios.get("peRatioTTM")
+        peg  = ratios.get("pegRatioTTM")
+        pfcf = ratios.get("priceToFreeCashFlowsRatioTTM")
+
+        # ── 4. Kasstroomoverzicht (FCF voor DCF-berekening) ────────
+        cf_data = _fmp_get(f"/cash-flow-statement/{ticker}", {"limit": 1})
+        cf = cf_data[0] if cf_data and isinstance(cf_data, list) else {}
+        fcf = float(cf.get("freeCashFlow", 0) or 0)
+
+        # ── Fundamentals berekenen ─────────────────────────────────
+        mc     = float(profile.get("mktCap", 0) or 0)
+        shares = float(profile.get("sharesOutstanding", 0) or 0)
+
+        fpe = tpe  # gebruik TTM P/E als forward P/E-benadering
+        if not pfcf and mc and fcf > 0:
+            pfcf = mc / fcf  # fallback: marktkapitalisatie / FCF
+
+        fcf_ps = (fcf / shares) if fcf and shares > 0 else None
+        dcf_fv = fcf_ps * 25 if fcf_ps else None
+
+        hist_pe   = tpe * 0.95 if tpe else (fpe * 1.1 if fpe else None)
+        hist_pfcf = pfcf * 1.05 if pfcf else None
+
+        # ── Technische indicatoren ─────────────────────────────────
         def calc_rsi(series, period=14):
             d    = series.diff()
             gain = d.clip(lower=0).rolling(period).mean()
@@ -424,11 +539,10 @@ def fetch_stock_data(ticker: str) -> dict:
             rs   = gain / loss
             return 100 - (100 / (1 + rs))
 
-        # ── Timeframe series ──────────────────────
         hist_w = hist["Close"].resample("W").last()
         hist_m = hist["Close"].resample("ME").last()
 
-        # ── RSI + divergentie per timeframe ───────
+        # RSI + divergentie per timeframe
         rsi_series_d = calc_rsi(hist["Close"])
         rsi_d        = rsi_series_d.iloc[-1]
         rsi_div_d    = calc_rsi_divergence(hist["Close"], rsi_series_d)
@@ -441,52 +555,39 @@ def fetch_stock_data(ticker: str) -> dict:
         rsi_m        = rsi_series_m.iloc[-1] if len(hist_m) > 14 else None
         rsi_div_m    = calc_rsi_divergence(hist_m, rsi_series_m) if len(hist_m) > 14 else "NEUTRAAL"
 
-        # ── MA20 per timeframe ────────────────────
+        # MA20 per timeframe
         ma20_d = hist["Close"].rolling(20).mean().iloc[-1]
         ma20_w = hist_w.rolling(20).mean().iloc[-1] if len(hist_w) >= 20 else hist_w.mean()
         ma20_m = hist_m.rolling(20).mean().iloc[-1] if len(hist_m) >= 20 else hist_m.mean()
 
-        # ── MA200 ─────────────────────────────────
+        # MA200
         ma200 = hist["Close"].rolling(200).mean().iloc[-1] if len(hist) >= 200 else hist["Close"].mean()
 
-        # ── APZ per timeframe ─────────────────────
+        # APZ per timeframe
         apz_ema_d, apz_up_d, apz_lo_d = calc_apz(hist["Close"])
         apz_ema_w, apz_up_w, apz_lo_w = calc_apz(hist_w) if len(hist_w) >= 20 else (None, None, None)
         apz_ema_m, apz_up_m, apz_lo_m = calc_apz(hist_m) if len(hist_m) >= 20 else (None, None, None)
 
-        # ── Volume spike ──────────────────────────
-        vol_avg20  = hist["Volume"].rolling(20).mean().iloc[-1]
-        vol_spike  = float(hist["Volume"].iloc[-1] / vol_avg20) if vol_avg20 and vol_avg20 > 0 else None
+        # Volume spike
+        vol_avg20 = hist["Volume"].rolling(20).mean().iloc[-1]
+        vol_spike = float(hist["Volume"].iloc[-1] / vol_avg20) if vol_avg20 and vol_avg20 > 0 else None
 
-        # ── Bollinger Bands (paniek) ──────────────
+        # Bollinger Bands (paniekdetectie)
         bb_mid   = hist["Close"].rolling(20).mean().iloc[-1]
         bb_std   = hist["Close"].rolling(20).std().iloc[-1]
         bb_width = float((bb_mid + 2 * bb_std) - (bb_mid - 2 * bb_std))
         bb_pct_b = float((price - (bb_mid - 2 * bb_std)) / bb_width) if bb_width > 0 else None
 
-        # ── Fundamentals ──────────────────────────
-        fpe    = info.get("forwardPE")
-        tpe    = info.get("trailingPE")
-        peg    = info.get("pegRatio")
-        mc     = info.get("marketCap", 0)
-        fcf    = info.get("freeCashflow", 0)
-        pfcf   = (mc / fcf) if fcf and fcf > 0 else None
-        shares = info.get("sharesOutstanding", 0)
-        fcf_ps = (fcf / shares) if fcf and shares else None
-        dcf_fv = fcf_ps * 25 if fcf_ps else None
-
-        hist_pe   = tpe * 0.95 if tpe else (fpe * 1.1 if fpe else None)
-        hist_pfcf = pfcf * 1.05 if pfcf else None
-
+        # Momentum (1 maand)
         p1m = hist["Close"].iloc[-22] if len(hist) >= 22 else hist["Close"].iloc[0]
-        mom = ((price - p1m) / p1m) * 100
+        mom = ((price - float(p1m)) / float(p1m)) * 100
 
         return {
             "ticker":               ticker,
-            "name":                 info.get("longName", ticker),
-            "sector":               info.get("sector", "Technology"),
+            "name":                 profile.get("companyName", ticker),
+            "sector":               profile.get("sector", "Technology"),
             "current_price":        round(price, 2),
-            "currency":             info.get("currency", "USD"),
+            "currency":             profile.get("currency", "USD"),
             # RSI
             "rsi_daily":            _r(rsi_d, 1),
             "rsi_weekly":           _r(rsi_w, 1),
@@ -632,9 +733,9 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
     }
 
 
-def calculate_etf_score(results: list) -> dict:
-    total_weight = sum(h["etf_weight"] for h in ETF_HOLDINGS)
-    weight_map   = {h["ticker"]: h["etf_weight"] for h in ETF_HOLDINGS}
+def calculate_etf_score(results: list, holdings: list) -> dict:
+    total_weight = sum(h["etf_weight"] for h in holdings)
+    weight_map   = {h["ticker"]: h["etf_weight"] for h in holdings}
     valid  = [r for r in results if "error" not in r]
     score  = sum(r["total_score"] * (weight_map.get(r["ticker"], 0) / total_weight) for r in valid)
     signal = "INSTAP" if score >= 65 else "UITSTAP" if score < 45 else "AFWACHTEN"
@@ -642,7 +743,7 @@ def calculate_etf_score(results: list) -> dict:
         "etf_score":          round(score, 1),
         "etf_signal":         signal,
         "holdings_analyzed":  len(valid),
-        "holdings_total":     len(ETF_HOLDINGS),
+        "holdings_total":     len(holdings),
     }
 
 
@@ -667,29 +768,43 @@ def get_score(ticker: str):
 
 
 @app.get("/etf")
-def get_etf(use_cache: bool = True):
+def get_etf(isin: str = None, use_cache: bool = True):
     global _etf_cache, _etf_cache_time
 
-    if use_cache and _etf_cache is not None and _etf_cache_time is not None:
-        age_minutes = (datetime.now() - _etf_cache_time).total_seconds() / 60
+    cache_key = isin.upper() if isin else "default"
+
+    if use_cache and cache_key in _etf_cache and cache_key in _etf_cache_time:
+        age_minutes = (datetime.now() - _etf_cache_time[cache_key]).total_seconds() / 60
         if age_minutes < CACHE_DURATION_MINUTES:
-            return {**_etf_cache, "cached": True, "cache_age_minutes": round(age_minutes, 1)}
+            return {**_etf_cache[cache_key], "cached": True, "cache_age_minutes": round(age_minutes, 1)}
+
+    # Bepaal welke holdings geanalyseerd worden
+    if isin:
+        ticker = resolve_isin_to_ticker(isin.upper())
+        if not ticker:
+            return {"error": f"ISIN {isin} kon niet worden omgezet naar een ticker"}
+        holdings = fetch_etf_holdings(ticker)
+        if not holdings:
+            return {"error": f"Geen holdings gevonden voor ETF {ticker} (ISIN: {isin})"}
+    else:
+        holdings = ETF_HOLDINGS
 
     results = []
-    for h in ETF_HOLDINGS:
+    for h in holdings:
         data  = fetch_stock_data(h["ticker"])
         score = calculate_score(data)
         score["etf_weight"] = h["etf_weight"]
         results.append(score)
-    summary = calculate_etf_score(results)
+    summary = calculate_etf_score(results, holdings)
     response = {
         "summary":      summary,
         "holdings":     results,
         "config":       {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
         "generated_at": datetime.now().isoformat(),
+        "isin":         isin,
     }
-    _etf_cache = response
-    _etf_cache_time = datetime.now()
+    _etf_cache[cache_key] = response
+    _etf_cache_time[cache_key] = datetime.now()
     return {**response, "cached": False, "cache_age_minutes": 0}
 
 
@@ -735,7 +850,7 @@ if __name__ == "__main__":
         score["etf_weight"] = h["etf_weight"]
         results.append(score)
 
-    summary = calculate_etf_score(results)
+    summary = calculate_etf_score(results, ETF_HOLDINGS)
 
     print(f"\n{'═'*65}")
     print(f"  {'Ticker':<8} {'Score':>6}  {'Signaal':<10} {'RSI':>5}  {'PEG':>5}  {'Fwd P/E':>8}")

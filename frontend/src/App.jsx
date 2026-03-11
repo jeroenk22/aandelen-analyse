@@ -90,11 +90,14 @@ export default function App() {
   const [weights, setWeights]   = useState(MOCK_DATA.config.timeframe_weights);
   const [indWeights, setIndWeights] = useState(MOCK_DATA.config.indicator_weights);
   const [useCache, setUseCache] = useState(true);
+  const [isinInput, setIsinInput] = useState("");
+  const [activeIsin, setActiveIsin] = useState("");
 
-  const fetchLiveData = useCallback(async (cachePref = useCache) => {
+  const fetchLiveData = useCallback(async (cachePref = useCache, isin = activeIsin) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/etf?use_cache=${cachePref}`);
+      const isinParam = isin ? `&isin=${encodeURIComponent(isin)}` : "";
+      const res = await fetch(`${API_BASE}/etf?use_cache=${cachePref}${isinParam}`);
       const json = await res.json();
       setData(json);
       setWeights(json.config.timeframe_weights);
@@ -159,9 +162,41 @@ export default function App() {
                   ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
                   : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
               }
+              {activeIsin && <span style={{ color: "#3B82F6", marginLeft: 8 }}>· {activeIsin}</span>}
             </div>
           </div>
         </div>
+        {/* ISIN INVOER */}
+        <form onSubmit={e => {
+          e.preventDefault();
+          const trimmed = isinInput.trim().toUpperCase();
+          setActiveIsin(trimmed);
+          fetchLiveData(useCache, trimmed);
+        }} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="text"
+            value={isinInput}
+            onChange={e => setIsinInput(e.target.value)}
+            placeholder="ETF ISIN (bijv. IE00B4L5Y983)"
+            style={{
+              padding: "7px 12px", borderRadius: 6, background: "#060C18",
+              border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
+              fontFamily: "'DM Mono'", width: 220, outline: "none",
+            }}
+          />
+          <button type="submit" className="hov"
+            style={{ padding: "7px 12px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
+            Analyseer
+          </button>
+          {activeIsin && (
+            <button type="button" className="hov" onClick={() => {
+              setActiveIsin(""); setIsinInput(""); fetchLiveData(useCache, "");
+            }} style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12 }}>
+              ✕
+            </button>
+          )}
+        </form>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <label title="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden."
             style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
