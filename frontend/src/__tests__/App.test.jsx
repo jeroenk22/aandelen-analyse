@@ -74,8 +74,9 @@ describe('Cache toggle', () => {
   it('heeft een tooltip met uitleg over 60 minuten', async () => {
     await renderApp(mockFetch(makeLiveResponse()));
     const label = screen.getByText(/Cache/i).closest('label');
-    expect(label).toHaveAttribute('title');
-    expect(label.getAttribute('title')).toMatch(/60 min/);
+    const tooltipWrapper = label.closest('span');
+    await act(async () => { fireEvent.mouseEnter(tooltipWrapper); });
+    expect(screen.getByText(/60 min/i)).toBeInTheDocument();
   });
 });
 
