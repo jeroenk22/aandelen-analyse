@@ -14,6 +14,7 @@ frontend/dist/
 frontend/build/
 .env.local
 .env.production
+frontend/.env.production
 
 # OS
 .DS_Store
