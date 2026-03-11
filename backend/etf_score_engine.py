@@ -157,15 +157,17 @@ ETF_HOLDINGS = [
 # ─────────────────────────────────────────────
 
 def _fmp_get(path: str, params: dict = None):
-    """GET request naar FMP API. Geeft None bij fout."""
+    """GET request naar FMP API. Geeft None bij fout, 'PREMIUM' bij 402."""
     url = f"{FMP_BASE}{path}"
     p = {"apikey": FMP_API_KEY, **(params or {})}
     try:
         resp = requests.get(url, params=p, timeout=30)
+        if resp.status_code == 402:
+            return "PREMIUM"
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        print(f"  ⚠ FMP API fout ({path}): {e}")
+        print(f"FMP API fout ({path}): {e}")
         return None
 
 
@@ -489,6 +491,8 @@ def fetch_stock_data(ticker: str) -> dict:
             "/historical-price-eod/full",
             {"symbol": ticker, "from": three_years_ago, "to": today},
         )
+        if hist_data == "PREMIUM":
+            return {"error": f"{ticker} vereist een betaald FMP-plan (niet beschikbaar op gratis tier)", "ticker": ticker}
         # Stable API geeft een lijst terug; v3 API gaf {"historical": [...]}
         if isinstance(hist_data, dict):
             hist_data = hist_data.get("historical", [])
@@ -625,6 +629,8 @@ def fetch_stock_data(ticker: str) -> dict:
 def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
     if data is None:
         return {"total_score": 50, "signal": "NEUTRAAL", "error": "Geen data"}
+    if "error" in data:
+        return {"total_score": 50, "signal": "NEUTRAAL", "error": data["error"], "ticker": data.get("ticker", "")}
 
     p = data["current_price"]
 
@@ -760,24 +766,27 @@ def get_score(ticker: str):
 
 
 @app.get("/etf")
-def get_etf(isin: str = None, use_cache: bool = True):
+def get_etf(tickers: str = None, use_cache: bool = True):
     global _etf_cache, _etf_cache_time
 
-    cache_key = isin.upper() if isin else "default"
+    # Normaliseer tickers-param naar gesorteerde sleutel voor cache
+    if tickers:
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        cache_key = ",".join(sorted(ticker_list))
+    else:
+        ticker_list = None
+        cache_key = "default"
 
     if use_cache and cache_key in _etf_cache and cache_key in _etf_cache_time:
         age_minutes = (datetime.now() - _etf_cache_time[cache_key]).total_seconds() / 60
         if age_minutes < CACHE_DURATION_MINUTES:
             return {**_etf_cache[cache_key], "cached": True, "cache_age_minutes": round(age_minutes, 1)}
 
-    # Bepaal welke holdings geanalyseerd worden
-    if isin:
-        ticker = resolve_isin_to_ticker(isin.upper())
-        if not ticker:
-            return {"error": f"ISIN {isin} kon niet worden omgezet naar een ticker"}
-        holdings = fetch_etf_holdings(ticker)
-        if not holdings:
-            return {"error": f"Geen holdings gevonden voor ETF {ticker} (ISIN: {isin})"}
+    # Bepaal holdings: custom tickers of standaard ETF_HOLDINGS
+    if ticker_list:
+        # Gelijke verdeling over alle opgegeven tickers
+        weight = round(1 / len(ticker_list), 6)
+        holdings = [{"ticker": t, "name": t, "etf_weight": weight} for t in ticker_list]
     else:
         holdings = ETF_HOLDINGS
 
@@ -793,7 +802,7 @@ def get_etf(isin: str = None, use_cache: bool = True):
         "holdings":     results,
         "config":       {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
         "generated_at": datetime.now().isoformat(),
-        "isin":         isin,
+        "tickers":      cache_key if ticker_list else None,
     }
     _etf_cache[cache_key] = response
     _etf_cache_time[cache_key] = datetime.now()
