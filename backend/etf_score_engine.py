@@ -137,19 +137,17 @@ INDICATOR_META = {
     },
 }
 
-# Holdings met ETF-wegingen (uit projectinstructie)
-ETF_HOLDINGS = [
-    {"ticker": "NVDA",      "name": "NVIDIA Corp",             "etf_weight": 0.0454},
-    {"ticker": "AAPL",      "name": "Apple Inc",               "etf_weight": 0.0369},
-    {"ticker": "MSFT",      "name": "Microsoft Corp",          "etf_weight": 0.0288},
-    {"ticker": "GOOGL",     "name": "Alphabet Class A",        "etf_weight": 0.0222},
-    {"ticker": "TSM",       "name": "Taiwan Semiconductor",    "etf_weight": 0.0209},
-    {"ticker": "AMZN",      "name": "Amazon.com Inc",          "etf_weight": 0.0208},
-    {"ticker": "GOOG",      "name": "Alphabet Class C",        "etf_weight": 0.0134},
-    {"ticker": "AVGO",      "name": "Broadcom Inc",            "etf_weight": 0.0125},
-    {"ticker": "META",      "name": "Meta Platforms",          "etf_weight": 0.0123},
-    {"ticker": "005930.KS", "name": "Samsung Electronics",     "etf_weight": 0.0111},
-]
+# Standaard tickers uit config.json (gelijk gewogen)
+_config_path = os.path.join(os.path.dirname(__file__), "config.json")
+try:
+    with open(_config_path, "r") as _f:
+        _cfg = json.load(_f)
+    _default_tickers = _cfg.get("default_tickers", [])
+except Exception:
+    _default_tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "TSM", "AMZN", "META"]
+
+_w = round(1 / len(_default_tickers), 6) if _default_tickers else 1.0
+ETF_HOLDINGS = [{"ticker": t, "name": t, "etf_weight": _w} for t in _default_tickers]
 
 
 # ─────────────────────────────────────────────
