@@ -474,8 +474,16 @@ def _interp_apz(price, apz_lo, apz_up, tf: str) -> dict:
 # DATA OPHALEN
 # ─────────────────────────────────────────────
 
-def fetch_stock_data(ticker: str) -> dict:
+def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
     try:
+        # Bepaal referentiedatum (historische modus of vandaag)
+        if as_of_date:
+            ref_date = datetime.strptime(as_of_date, "%Y-%m-%d")
+            historical_mode = True
+        else:
+            ref_date = datetime.now()
+            historical_mode = False
+
         # ── 1. Profiel (naam, sector, valuta, marktkapitalisatie) ──
         profile_data = _fmp_get("/profile", {"symbol": ticker})
         if not profile_data or not isinstance(profile_data, list):
@@ -483,8 +491,8 @@ def fetch_stock_data(ticker: str) -> dict:
         profile = profile_data[0]
 
         # ── 2. Koersgeschiedenis (3 jaar dagelijks) ────────────────
-        three_years_ago = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
-        today = datetime.now().strftime("%Y-%m-%d")
+        three_years_ago = (ref_date - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
+        today = ref_date.strftime("%Y-%m-%d")
         hist_data = _fmp_get(
             "/historical-price-eod/full",
             {"symbol": ticker, "from": three_years_ago, "to": today},
@@ -510,8 +518,12 @@ def fetch_stock_data(ticker: str) -> dict:
         price = float(hist["Close"].iloc[-1])
 
         # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
-        ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
-        ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
+        # Fundamentals zijn niet beschikbaar voor historische datums op Starter-plan
+        if not historical_mode:
+            ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
+            ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
+        else:
+            ratios = {}
 
         tpe      = ratios.get("priceToEarningsRatioTTM")
         peg      = ratios.get("priceToEarningsGrowthRatioTTM")
@@ -614,6 +626,7 @@ def fetch_stock_data(ticker: str) -> dict:
             "price_fcf":            _r(pfcf, 2),
             "historical_avg_pfcf":  _r(hist_pfcf, 2),
             "dcf_fair_value":       _r(dcf_fv, 2),
+            "fundamentals_unavailable": historical_mode,
         }
     except Exception as e:
         print(f"  ⚠ Fout bij {ticker}: {e}")
@@ -805,6 +818,42 @@ def get_etf(tickers: str = None, use_cache: bool = True):
     _etf_cache[cache_key] = response
     _etf_cache_time[cache_key] = datetime.now()
     return {**response, "cached": False, "cache_age_minutes": 0}
+
+
+@app.get("/historical")
+def get_historical(date: str, tickers: str = None):
+    """Bereken scores voor alle aandelen op een historische datum."""
+    try:
+        target = datetime.strptime(date, "%Y-%m-%d")
+        if target > datetime.now():
+            return {"error": "Datum mag niet in de toekomst liggen"}
+    except ValueError:
+        return {"error": "Ongeldige datum — gebruik YYYY-MM-DD formaat"}
+
+    if tickers:
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        weight = round(1 / len(ticker_list), 6)
+        holdings = [{"ticker": t, "name": t, "etf_weight": weight} for t in ticker_list]
+    else:
+        holdings = ETF_HOLDINGS
+
+    results = []
+    for h in holdings:
+        data  = fetch_stock_data(h["ticker"], as_of_date=date)
+        score = calculate_score(data)
+        score["etf_weight"] = h["etf_weight"]
+        results.append(score)
+
+    summary = calculate_etf_score(results, holdings)
+    return {
+        "summary":        summary,
+        "holdings":       results,
+        "config":         {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
+        "generated_at":   datetime.now().isoformat(),
+        "historical_date": date,
+        "cached":         False,
+        "cache_age_minutes": 0,
+    }
 
 
 @app.get("/config")
