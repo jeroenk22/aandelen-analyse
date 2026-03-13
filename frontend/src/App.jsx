@@ -70,6 +70,14 @@ export default function App() {
   // Probeer live data bij laden
   useEffect(() => { fetchLiveData(); }, [fetchLiveData]);
 
+  // Als data ververst wordt terwijl een holding geselecteerd is, update selected direct
+  useEffect(() => {
+    if (selected && data.holdings) {
+      const updated = data.holdings.find(h => h.ticker === selected.ticker);
+      if (updated) setSelected(updated);
+    }
+  }, [data]);
+
   // ─── Live score herberekening op basis van sliders ──────────────────────────
   const liveScore = (() => {
     const valid = (data.holdings || []).filter(h => h.scores_by_timeframe);
