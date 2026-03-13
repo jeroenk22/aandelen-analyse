@@ -227,6 +227,7 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
           name={holding.name}
           currency={holding.currency}
           priceHistory={holding.raw_data.price_history}
+          isHistoricalMode={isHistoricalMode}
         />
       )}
 

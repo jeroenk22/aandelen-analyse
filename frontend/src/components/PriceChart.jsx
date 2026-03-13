@@ -18,8 +18,8 @@ const EOD_RANGES = {
 };
 
 // Koersgrafiek (ComposedChart) voor een geselecteerd aandeel
-// Props: ticker (string), name (string), currency (string), priceHistory (array)
-export default function PriceChart({ ticker, name, currency, priceHistory }) {
+// Props: ticker (string), name (string), currency (string), priceHistory (array), isHistoricalMode (boolean)
+export default function PriceChart({ ticker, name, currency, priceHistory, isHistoricalMode = false }) {
   const [chartRange, setChartRange]           = useState("1J");
   const [showIntraday, setShowIntraday]       = useState(false);
   const [intradayData, setIntradayData]       = useState([]);
@@ -100,20 +100,21 @@ export default function PriceChart({ ticker, name, currency, priceHistory }) {
 
         {/* Knoppen-rij */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Intraday toggle */}
-          <button onClick={handleIntradayToggle} style={btnStyle(showIntraday, "#8B5CF6")}>
-            {intradayLoading ? "⏳" : "4U"}
-          </button>
+          {/* Intraday toggle (alleen in live modus) */}
+          {!isHistoricalMode && (
+            <>
+              <button onClick={handleIntradayToggle} style={btnStyle(showIntraday, "#8B5CF6")}>
+                {intradayLoading ? "⏳" : "4U"}
+              </button>
+              <div style={{ width: 1, height: 16, background: "#1E2D45", margin: "0 2px" }} />
+            </>
+          )}
 
-          {/* Scheidslijn */}
-          <div style={{ width: 1, height: 16, background: "#1E2D45", margin: "0 2px" }} />
-
-          {/* EOD bereiksknoppen (uitgeschakeld bij intraday) */}
+          {/* EOD bereiksknoppen */}
           {Object.keys(EOD_RANGES).map(r => (
             <button key={r}
               onClick={() => { setShowIntraday(false); setChartRange(r); }}
-              style={btnStyle(!showIntraday && chartRange === r)}
-              disabled={showIntraday}>
+              style={btnStyle(!showIntraday && chartRange === r)}>
               {r}
             </button>
           ))}

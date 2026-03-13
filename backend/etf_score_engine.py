@@ -176,18 +176,31 @@ def _fmp_get(path: str, params: dict = None):
         return None
 
 
+# Interval mapping: interne naam → stable API timeframe parameter
+_INTERVAL_MAP = {
+    "daily":   "1day",
+    "weekly":  "1week",
+    "monthly": "1month",
+    "4hour":   "4hour",
+    "1hour":   "1hour",
+}
+
+
 def _fetch_indicator(ticker: str, ind_type: str, period: int,
                      interval: str = "daily", limit: int = 50) -> Optional[list]:
-    """Haal technische indicator op via FMP. Geeft lijst (nieuwste eerst) of None terug.
-    ind_type: 'rsi', 'sma', 'ema', 'standardDeviation', 'adx', 'williams'
+    """Haal technische indicator op via FMP stable API. Geeft lijst (nieuwste eerst) of None terug.
+    ind_type: 'rsi', 'sma', 'ema'
     interval: 'daily', 'weekly', 'monthly', '1hour', '4hour'
     """
+    tf = _INTERVAL_MAP.get(interval, interval)
+    # Bereken from-datum ruim genoeg voor gevraagd aantal candles
+    from_date = (datetime.now() - timedelta(days=max(limit * 2, 365))).strftime("%Y-%m-%d")
     data = _fmp_get(
-        f"/technical_indicator/{interval}/{ticker}",
-        {"type": ind_type, "period": period, "limit": limit}
+        f"/technical-indicators/{ind_type}",
+        {"symbol": ticker, "periodLength": period, "timeframe": tf, "from": from_date}
     )
     if isinstance(data, list) and len(data) > 0:
-        return data
+        return data[:limit]  # Nieuwste eerst, beperkt tot gevraagd aantal
     return None
 
 
@@ -708,8 +721,8 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
         if not historical_mode:
             intraday_from = (ref_date - timedelta(days=90)).strftime("%Y-%m-%d")
             intraday_raw = _fmp_get(
-                f"/historical-chart/4hour/{ticker}",
-                {"from": intraday_from, "to": today}
+                "/historical-chart/4hour",
+                {"symbol": ticker, "from": intraday_from, "to": today}
             )
             if intraday_raw and isinstance(intraday_raw, list) and len(intraday_raw) >= 20:
                 intraday_df = pd.DataFrame(list(reversed(intraday_raw)))
@@ -1083,8 +1096,8 @@ def get_intraday(ticker: str, interval: str = "4hour", days: int = 60):
     to_date   = datetime.now().strftime("%Y-%m-%d")
 
     data = _fmp_get(
-        f"/historical-chart/{interval}/{ticker}",
-        {"from": from_date, "to": to_date}
+        f"/historical-chart/{interval}",
+        {"symbol": ticker, "from": from_date, "to": to_date}
     )
 
     if not data or isinstance(data, str) or not isinstance(data, list):

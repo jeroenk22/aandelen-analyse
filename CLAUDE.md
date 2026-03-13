@@ -45,8 +45,8 @@ De app gebruikt **Financial Modeling Prep (FMP)** via `https://financialmodeling
 | `/profile` | ✅ Worldwide | Bedrijfsnaam, sector |
 | `/historical-price-eod/full` | ✅ 30 jaar | Koersgeschiedenis dagelijks |
 | `/ratios-ttm` | ✅ US-only | P/E, PEG, P/FCF TTM |
-| `/technical_indicator/{interval}/{symbol}` | ✅ Premium | RSI, SMA, EMA via API |
-| `/historical-chart/{interval}/{symbol}` | ✅ Premium | Intraday (1h, 4h) koersdata |
+| `/technical-indicators/{type}?symbol=&periodLength=&timeframe=` | ✅ Premium | RSI, SMA, EMA via API (timeframe: `1day`,`4hour`,`1hour`) |
+| `/historical-chart/{interval}?symbol=` | ✅ Premium | Intraday (1h, 4h) koersdata |
 | `/sector-performance` | ✅ Premium | Actuele sectorprestaties |
 | `/etf-holder` | ❌ Niet beschikbaar | Alleen op Ultimate ($139/mo) |
 | `/search-symbol` | ✅ Worldwide | ISIN → ticker |
@@ -58,7 +58,7 @@ De app gebruikt **Financial Modeling Prep (FMP)** via `https://financialmodeling
 - **`/etf-holder`** is NIET beschikbaar op Premium — holdings handmatig instellen in `config.json`
 - **Historische data** tot 30 jaar beschikbaar
 - **Technische indicatoren** worden opgehaald via API (RSI, SMA20, SMA200) met fallback op lokale berekening
-- **Intraday** 4-uurs data beschikbaar via `/historical-chart/4hour/{symbol}`
+- **Intraday** 4-uurs data beschikbaar via `/historical-chart/4hour?symbol={symbol}` (symbol is query param, niet path)
 
 ### API-foutcodes
 
