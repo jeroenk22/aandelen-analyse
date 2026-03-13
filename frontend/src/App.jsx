@@ -483,7 +483,7 @@ export default function App() {
 
           {/* KOERSGRAFIEK */}
           {selected.raw_data?.price_history?.length > 0 && (() => {
-            const RANGES = { "1M": 21, "3M": 63, "6M": 126, "1J": 252, "3J": 756 };
+            const RANGES = { "1M": 21, "3M": 63, "6M": 126, "1J": 252, "3J": 756, "5J": 1260 };
             const days = RANGES[chartRange] ?? 252;
             const history = selected.raw_data.price_history;
             const sliced = history.slice(-days);
@@ -515,7 +515,7 @@ export default function App() {
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 4 }}>
-                    {["1M","3M","6M","1J","3J"].map(r => (
+                    {["1M","3M","6M","1J","3J","5J"].map(r => (
                       <button key={r} onClick={() => setChartRange(r)}
                         style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontFamily: "'DM Mono'", cursor: "pointer",
                           background: chartRange === r ? lineColor + "22" : "transparent",
