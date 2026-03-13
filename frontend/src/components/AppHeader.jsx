@@ -168,7 +168,7 @@ export default function AppHeader({
     <div className="header-wrapper" style={{ background: "#0D1321", borderBottom: "1px solid #1E2D45" }}>
 
       {/* Logo & status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div className="header-logo" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ width: 34, height: 34, borderRadius: 8, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📡</div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>ETF Intelligence Dashboard</div>

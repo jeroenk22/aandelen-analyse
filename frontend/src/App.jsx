@@ -141,6 +141,7 @@ export default function App() {
         .desktop-table { display: block; }
         .mobile-cards { display: none; }
         .header-wrapper { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 24px; }
+        .header-logo { flex-shrink: 0; }
         .header-form { display: flex; align-items: center; gap: 6px; }
         .header-ticker-input { width: 220px; height: 34px; box-sizing: border-box; }
         .header-date-input { flex: 0 0 auto; }
@@ -159,7 +160,8 @@ export default function App() {
           .header-ticker-input { flex: 1; width: auto; min-width: 0; }
           .header-date-input { flex: 1; min-width: 0; }
           .header-cache-row { justify-content: space-between; margin-left: 0; }
-          .header-btn { min-width: 0; flex-shrink: 0; width: 100%; justify-content: center; }
+          .header-form .header-btn { flex-shrink: 0; width: auto; min-width: 96px; justify-content: center; }
+          .header-cache-row .header-btn { flex: 1; justify-content: center; }
           .detail-grid { grid-template-columns: 1fr; }
           .ohlc-desktop { display: none; }
           .ohlc-mobile { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
