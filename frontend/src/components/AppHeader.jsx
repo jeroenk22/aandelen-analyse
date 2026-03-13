@@ -195,27 +195,25 @@ export default function AppHeader({
           placeholder="Tickers (bijv. AAPL, MSFT, NVDA)"
           className="header-ticker-input"
           style={{
-            padding: "7px 12px", borderRadius: 6, background: "#060C18",
+            padding: "0 12px", borderRadius: 6, background: "#060C18",
             border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
             fontFamily: "'DM Mono'", outline: "none",
           }}
         />
         <button type="submit" className="hov header-btn"
-          style={{ padding: "7px 12px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
+          style={{ padding: "0 14px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
           Analyseer
         </button>
-        {activeTickers && (
-          <button type="button" className="hov" onClick={onClearTickers}
-            style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12 }}>
-            ✕
-          </button>
-        )}
+        <button type="button" className="hov header-btn" onClick={onClearTickers}
+          style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: activeTickers ? "visible" : "hidden" }}>
+          ✕
+        </button>
       </form>
 
       {/* Historische datum picker */}
       <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
         <div style={{
-          display: "flex", alignItems: "stretch",
+          display: "flex", alignItems: "stretch", height: 34, boxSizing: "border-box",
           border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#1E3A5F"}`,
           borderRadius: 6, background: "#060C18",
           boxShadow: isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none",
@@ -240,19 +238,17 @@ export default function AppHeader({
         </div>
         <button type="submit" className="hov header-btn"
           style={{
-            padding: "7px 12px", borderRadius: 6, cursor: "pointer",
+            padding: "0 14px", borderRadius: 6, cursor: "pointer", minWidth: 90,
             background: isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
             border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
-            color: "#F59E0B", fontSize: 12, fontWeight: 600,
+            color: "#F59E0B", fontSize: 12, fontWeight: 600, justifyContent: "center",
           }}>
           {isHistoricalMode ? "Actief" : "Historisch"}
         </button>
-        {isHistoricalMode && (
-          <button type="button" className="hov" onClick={onClearHistorical}
-            style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer" }}>
-            ✕
-          </button>
-        )}
+        <button type="button" className="hov header-btn" onClick={onClearHistorical}
+          style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: isHistoricalMode ? "visible" : "hidden" }}>
+          ✕
+        </button>
       </form>
 
       {/* Cache-toggle & vernieuwen */}
@@ -266,7 +262,7 @@ export default function AppHeader({
           </label>
         </IndicatorTooltip>
         <button className="hov header-btn" onClick={onRefresh}
-          style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
+          style={{ padding: "0 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
           {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
         </button>
       </div>

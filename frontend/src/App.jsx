@@ -140,11 +140,12 @@ export default function App() {
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
         .desktop-table { display: block; }
         .mobile-cards { display: none; }
-        .header-wrapper { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 24px; }
+        .header-wrapper { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 24px; }
         .header-form { display: flex; align-items: center; gap: 6px; }
-        .header-ticker-input { width: 260px; }
+        .header-ticker-input { width: 220px; height: 34px; box-sizing: border-box; }
         .header-date-input { flex: 0 0 auto; }
-        .header-cache-row { display: flex; align-items: center; gap: 10px; }
+        .header-cache-row { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        .header-btn { height: 34px; box-sizing: border-box; display: flex; align-items: center; }
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .ohlc-desktop { display: block; }
         .ohlc-mobile { display: none; }
