@@ -188,25 +188,32 @@ export default function AppHeader({
 
       {/* Ticker invoer */}
       <form onSubmit={e => { e.preventDefault(); onAnalyzeTickers(); }} className="header-form">
-        <input
-          type="text"
-          value={tickerInput}
-          onChange={e => setTickerInput(e.target.value)}
-          placeholder="Tickers (bijv. AAPL, MSFT, NVDA)"
-          className="header-ticker-input"
-          style={{
-            padding: "0 12px", borderRadius: 6, background: "#060C18",
-            border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
-            fontFamily: "'DM Mono'", outline: "none", minWidth: 0,
-          }}
-        />
+        {/* Input met inline ✕ */}
+        <div style={{ position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
+          <input
+            type="text"
+            value={tickerInput}
+            onChange={e => setTickerInput(e.target.value)}
+            placeholder="Tickers (bijv. AAPL, MSFT, NVDA)"
+            className="header-ticker-input"
+            style={{
+              padding: activeTickers ? "0 28px 0 12px" : "0 12px",
+              borderRadius: 6, background: "#060C18", width: "100%",
+              border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
+              fontFamily: "'DM Mono'", outline: "none", minWidth: 0, boxSizing: "border-box",
+            }}
+          />
+          {activeTickers && (
+            <button type="button" onClick={onClearTickers} style={{
+              position: "absolute", right: 6, background: "none", border: "none",
+              color: "#475569", cursor: "pointer", fontSize: 13, lineHeight: 1,
+              padding: "2px 3px", display: "flex", alignItems: "center",
+            }}>✕</button>
+          )}
+        </div>
         <button type="submit" className="hov header-btn"
-          style={{ padding: "0 14px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+          style={{ padding: "0 14px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer", flexShrink: 0 }}>
           Analyseer
-        </button>
-        <button type="button" className={`hov header-btn${activeTickers ? "" : " header-btn-ghost"}`} onClick={onClearTickers}
-          style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: activeTickers ? "visible" : "hidden" }}>
-          ✕
         </button>
       </form>
 
@@ -227,27 +234,31 @@ export default function AppHeader({
             borderRight: `1px solid ${isHistoricalMode ? "#F59E0B44" : "#1E2D45"}`,
             background: isHistoricalMode ? "#F59E0B0D" : "transparent",
             borderRadius: "5px 0 0 5px",
-            userSelect: "none", letterSpacing: "0.04em",
+            userSelect: "none", letterSpacing: "0.04em", flexShrink: 0,
           }}>🕐</span>
           <DatePicker
             value={historicalDateInput}
-            onChange={setHistoricalDateInput}
+            onChange={v => { setHistoricalDateInput(v); if (!v) onClearHistorical(); }}
             min={new Date(Date.now() - 30 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
             max={new Date().toISOString().split("T")[0]}
           />
+          {/* Inline ✕ in datepicker */}
+          {isHistoricalMode && (
+            <button type="button" onClick={onClearHistorical} style={{
+              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", color: "#475569", cursor: "pointer",
+              fontSize: 13, lineHeight: 1, padding: "2px 3px", display: "flex", alignItems: "center",
+            }}>✕</button>
+          )}
         </div>
         <button type="submit" className="hov header-btn"
           style={{
-            padding: "0 14px", borderRadius: 6, cursor: "pointer", minWidth: 90,
+            padding: "0 14px", borderRadius: 6, cursor: "pointer", minWidth: 90, flexShrink: 0,
             background: isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
             border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
             color: "#F59E0B", fontSize: 12, fontWeight: 600, justifyContent: "center",
           }}>
           {isHistoricalMode ? "Actief" : "Historisch"}
-        </button>
-        <button type="button" className={`hov header-btn${isHistoricalMode ? "" : " header-btn-ghost"}`} onClick={onClearHistorical}
-          style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: isHistoricalMode ? "visible" : "hidden" }}>
-          ✕
         </button>
       </form>
 

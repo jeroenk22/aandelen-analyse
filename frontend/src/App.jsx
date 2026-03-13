@@ -159,8 +159,7 @@ export default function App() {
           .header-ticker-input { flex: 1; width: auto; min-width: 0; }
           .header-date-input { flex: 1; min-width: 0; }
           .header-cache-row { justify-content: space-between; margin-left: 0; }
-          .header-btn { min-width: 0; flex-shrink: 0; }
-          .header-btn-ghost { display: none; }
+          .header-btn { min-width: 0; flex-shrink: 0; width: 100%; justify-content: center; }
           .detail-grid { grid-template-columns: 1fr; }
           .ohlc-desktop { display: none; }
           .ohlc-mobile { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
