@@ -491,6 +491,42 @@ export default function App() {
                     <span className="badge" style={{ background: signalColor(selected.signal)+"20", color: signalColor(selected.signal), border: `1px solid ${signalColor(selected.signal)}44`, marginTop: 4 }}>{selected.signal}</span>
                   </div>
                 </div>
+                {/* OHLCV dagdata */}
+                {selected.raw_data?.ohlc_day && (() => {
+                  const d = selected.raw_data.ohlc_day;
+                  const fmtVal = (v) => v == null ? "—" : selected.currency === "KRW" ? `₩${Number(v).toLocaleString("nl-NL")}` : `$${Number(v).toFixed(2)}`;
+                  const fmtVol = (v) => v == null ? "—" : Number(v).toLocaleString("nl-NL");
+                  const dateStr = new Date(d.date).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
+                  return (
+                    <div style={{ marginBottom: 16, background: "#060C18", borderRadius: 10, border: isHistoricalMode ? "1px solid #F59E0B44" : "1px solid #1E2D45", overflow: "hidden" }}>
+                      <div style={{ padding: "8px 14px", borderBottom: "1px solid #1E2D45", display: "flex", alignItems: "center", gap: 8 }}>
+                        {isHistoricalMode && <span style={{ fontSize: 11, color: "#F59E0B", fontFamily: "'DM Mono'", fontWeight: 600 }}>🕐 HISTORISCHE DATA</span>}
+                        {!isHistoricalMode && <span style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", fontWeight: 600 }}>DAGKOERSEN</span>}
+                        <span style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'" }}>· {dateStr}</span>
+                      </div>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#060C18" }}>
+                            {["Open", "High", "Low", "Close", ...(d.adj_close != null ? ["Adj Close"] : []), "Volume"].map(h => (
+                              <th key={h} style={{ padding: "7px 14px", textAlign: "right", fontSize: 10, color: "#475569", fontWeight: 600, fontFamily: "'DM Mono'", letterSpacing: "0.06em" }}>{h.toUpperCase()}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#E2E8F0" }}>{fmtVal(d.open)}</td>
+                            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#22C55E" }}>{fmtVal(d.high)}</td>
+                            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#EF4444" }}>{fmtVal(d.low)}</td>
+                            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, fontWeight: 700, color: "#93C5FD" }}>{fmtVal(d.close)}</td>
+                            {d.adj_close != null && <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#94A3B8" }}>{fmtVal(d.adj_close)}</td>}
+                            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 12, color: "#64748B" }}>{fmtVol(d.volume)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   {[["Dagelijks","daily"],["Wekelijks","weekly"],["Maandelijks","monthly"]].map(([label, key]) => (
                     <div key={key} style={{ background: "#060C18", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>

@@ -517,6 +517,18 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
 
         price = float(hist["Close"].iloc[-1])
 
+        # ── OHLCV voor de referentiedag ────────────────────────────
+        last_raw = hist_list[-1]
+        ohlc_day = {
+            "date":      str(hist.index[-1].date()),
+            "open":      last_raw.get("open"),
+            "high":      last_raw.get("high"),
+            "low":       last_raw.get("low"),
+            "close":     last_raw.get("close"),
+            "adj_close": last_raw.get("adjClose"),
+            "volume":    last_raw.get("volume"),
+        }
+
         # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
         # Fundamentals zijn niet beschikbaar voor historische datums op Starter-plan
         if not historical_mode:
@@ -627,6 +639,7 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "historical_avg_pfcf":  _r(hist_pfcf, 2),
             "dcf_fair_value":       _r(dcf_fv, 2),
             "fundamentals_unavailable": historical_mode,
+            "ohlc_day":             ohlc_day,
         }
     except Exception as e:
         print(f"  ⚠ Fout bij {ticker}: {e}")
