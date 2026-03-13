@@ -599,10 +599,15 @@ def _maak_koersdata(n=300, basisprijs=100.0):
     records = []
     for i in range(n):
         dag = vandaag - timedelta(days=i)
+        prijs = round(float(prijzen[i]), 2)
         records.append({
-            "date": dag.strftime("%Y-%m-%d"),
-            "close": round(float(prijzen[i]), 2),
-            "volume": int(volumes[i]),
+            "date":      dag.strftime("%Y-%m-%d"),
+            "open":      round(prijs * 0.99, 2),
+            "high":      round(prijs * 1.02, 2),
+            "low":       round(prijs * 0.97, 2),
+            "close":     prijs,
+            "adjClose":  prijs,
+            "volume":    int(volumes[i]),
         })
     return records  # nieuwste eerst, zoals FMP
 
@@ -630,3 +635,75 @@ def _mock_fmp_live(path, params=None):
             "freeCashFlowPerShareTTM": 5.0,
         }]
     return None
+
+
+# ─────────────────────────────────────────────
+# UNIT TESTS — OHLC_DAY EN PRICE_HISTORY
+# ─────────────────────────────────────────────
+
+class TestOhlcDayEnPriceHistory:
+    """Test dat fetch_stock_data ohlc_day en price_history correct retourneert."""
+
+    def test_ohlc_day_aanwezig(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        assert result is not None
+        assert "ohlc_day" in result
+
+    def test_ohlc_day_bevat_verplichte_velden(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        ohlc = result["ohlc_day"]
+        assert "date" in ohlc
+        assert "open" in ohlc
+        assert "high" in ohlc
+        assert "low" in ohlc
+        assert "close" in ohlc
+        assert "adj_close" in ohlc
+        assert "volume" in ohlc
+
+    def test_ohlc_day_close_gelijk_aan_current_price(self):
+        """De close van ohlc_day moet overeenkomen met current_price."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        assert result["ohlc_day"]["close"] == result["current_price"]
+
+    def test_ohlc_day_high_groter_of_gelijk_aan_low(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        ohlc = result["ohlc_day"]
+        if ohlc["high"] is not None and ohlc["low"] is not None:
+            assert ohlc["high"] >= ohlc["low"]
+
+    def test_price_history_aanwezig(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        assert "price_history" in result
+        assert isinstance(result["price_history"], list)
+        assert len(result["price_history"]) > 0
+
+    def test_price_history_bevat_date_en_close(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        for record in result["price_history"][:5]:
+            assert "date" in record
+            assert "close" in record
+
+    def test_price_history_gesorteerd_oudste_eerst(self):
+        """price_history moet chronologisch gesorteerd zijn (oudste eerst)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        datums = [r["date"] for r in result["price_history"]]
+        assert datums == sorted(datums)
+
+    def test_price_history_laatste_close_gelijk_aan_current_price(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        assert result["price_history"][-1]["close"] == result["current_price"]
+
+    def test_ohlc_day_ook_aanwezig_in_historische_modus(self):
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        assert result is not None
+        assert "ohlc_day" in result
+        assert "price_history" in result

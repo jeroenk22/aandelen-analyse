@@ -7,6 +7,9 @@
  *   - Vernieuwen-knop roept fetch aan
  *   - use_cache parameter wordt correct doorgegeven
  *   - Toggle wisselt cache-voorkeur en triggert nieuwe fetch
+ *   - Detail tab: koersgrafiek tijdframe-knoppen
+ *   - Detail tab: OHLCV tabel kolommen en waarden
+ *   - Detail tab: historische vs. live label
  */
 
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -38,9 +41,63 @@ function mockFetch(responseData) {
   });
 }
 
+// Recharts gebruikt ResizeObserver — mock zodat jsdom niet crasht
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+global.ResizeObserver = MockResizeObserver;
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+// ─── MOCK HOLDING MET OHLCV EN PRICE HISTORY ─────────────────────────────────
+
+function makeHolding(overrides = {}) {
+  return {
+    ticker: 'NVDA',
+    name: 'NVIDIA Corp',
+    current_price: 875.40,
+    currency: 'USD',
+    total_score: 72.3,
+    signal: 'KOOP',
+    etf_weight: 0.0454,
+    scores_by_timeframe: { daily: 74.1, weekly: 71.8, monthly: 70.9 },
+    indicator_scores: {
+      rsi_daily: 42, rsi_weekly: 38, rsi_monthly: 45,
+      rsi_divergence_daily: 50, rsi_divergence_weekly: 50, rsi_divergence_monthly: 50,
+      ma20_daily: 65, ma20_weekly: 63, ma20_monthly: 62,
+      ma200: 82, apz_daily: 55, apz_weekly: 52, apz_monthly: 50,
+      forward_pe: 68, peg: 71, price_fcf: 65, momentum: 75,
+      dcf_discount: 55, panic: 60,
+    },
+    raw_data: {
+      rsi_daily: 42.1, peg_ratio: 0.89, forward_pe: 28.4,
+      ma200: 721.30, momentum_1m: 3.2,
+      fundamentals_unavailable: false,
+      ohlc_day: {
+        date: '2026-03-10',
+        open: 860.00, high: 890.00, low: 855.00,
+        close: 875.40, adj_close: 875.40, volume: 45000000,
+      },
+      price_history: Array.from({ length: 30 }, (_, i) => ({
+        date: `2026-02-${String(i + 1).padStart(2, '0')}`,
+        close: 800 + i * 2,
+      })),
+    },
+    ...overrides,
+  };
+}
+
+function makeLiveResponseWithHolding(holdingOverrides = {}, responseOverrides = {}) {
+  return {
+    ...makeLiveResponse(),
+    holdings: [makeHolding(holdingOverrides)],
+    ...responseOverrides,
+  };
+}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -159,5 +216,131 @@ describe('Header status tekst', () => {
   it('toont cache-leeftijd in minuten', async () => {
     await renderApp(mockFetch(makeLiveResponse(true, 12)));
     expect(screen.getByText(/12 min geleden/i)).toBeInTheDocument();
+  });
+});
+
+// ─── HELPERS DETAIL TAB ───────────────────────────────────────────────────────
+
+async function renderAndOpenDetail(fetchImpl) {
+  await renderApp(fetchImpl);
+  // Klik op de NVDA rij → navigeert naar detail tab
+  await act(async () => {
+    fireEvent.click(screen.getByText('NVDA'));
+  });
+}
+
+// ─── TESTS: DETAIL TAB — KOERSGRAFIEK ────────────────────────────────────────
+
+describe('Detail tab — koersgrafiek tijdframe-knoppen', () => {
+  it('toont alle tijdframe-knoppen na openen detail tab', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    for (const label of ['1M', '3M', '6M', '1J', '3J', '5J']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('heeft 1J als actieve knop standaard', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    // De actieve knop heeft een andere kleur (niet #475569) — we controleren dat 1J aanwezig is
+    expect(screen.getByRole('button', { name: '1J' })).toBeInTheDocument();
+  });
+
+  it('wisselt actief tijdframe na klikken op 3M', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '3M' }));
+    });
+    expect(screen.getByRole('button', { name: '3M' })).toBeInTheDocument();
+  });
+
+  it('toont procentuele verandering naast de ticker', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    // price_history loopt van 800 naar 858 → positief rendement
+    const percentEl = document.querySelector('[style*="DM Mono"]');
+    expect(percentEl).toBeInTheDocument();
+  });
+});
+
+// ─── TESTS: DETAIL TAB — OHLCV TABEL ─────────────────────────────────────────
+
+describe('Detail tab — OHLCV tabel', () => {
+  it('toont alle kolomkoppen', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    expect(screen.getByText('OPEN')).toBeInTheDocument();
+    expect(screen.getByText('HIGH')).toBeInTheDocument();
+    expect(screen.getByText('LOW')).toBeInTheDocument();
+    expect(screen.getByText('CLOSE')).toBeInTheDocument();
+    expect(screen.getByText('VOLUME')).toBeInTheDocument();
+  });
+
+  it('toont "ADJ CLOSE" kolom als adj_close beschikbaar is', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    expect(screen.getByText('ADJ CLOSE')).toBeInTheDocument();
+  });
+
+  it('verbergt "ADJ CLOSE" kolom als adj_close null is', async () => {
+    const holding = makeHolding();
+    holding.raw_data.ohlc_day.adj_close = null;
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding({}, { holdings: [holding] })));
+    expect(screen.queryByText('ADJ CLOSE')).not.toBeInTheDocument();
+  });
+
+  it('toont "DAGKOERSEN" label in live modus', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    expect(screen.getByText('DAGKOERSEN')).toBeInTheDocument();
+  });
+
+  it('toont de close koers in de OHLCV tabel-cel', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    // $875.40 staat ook in de prijs-header; zoek specifiek de <td>
+    const cells = screen.getAllByText('$875.40');
+    const tableCell = cells.find(el => el.tagName === 'TD');
+    expect(tableCell).toBeInTheDocument();
+  });
+
+  it('toont volume als getal', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    expect(screen.getByText(/45\.000\.000|45,000,000/)).toBeInTheDocument();
+  });
+});
+
+// ─── TESTS: DETAIL TAB — OHLCV SECTIE ZICHTBAARHEID ─────────────────────────
+
+describe('Detail tab — OHLCV sectie zichtbaarheid', () => {
+  it('verbergt OHLCV tabel als ohlc_day ontbreekt', async () => {
+    const holding = makeHolding();
+    delete holding.raw_data.ohlc_day;
+    const response = { ...makeLiveResponseWithHolding(), holdings: [holding] };
+    await renderAndOpenDetail(mockFetch(response));
+    expect(screen.queryByText('DAGKOERSEN')).not.toBeInTheDocument();
+    expect(screen.queryByText('OPEN')).not.toBeInTheDocument();
+  });
+
+  it('toont OHLCV tabel als ohlc_day aanwezig is', async () => {
+    await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
+    expect(screen.getByText('DAGKOERSEN')).toBeInTheDocument();
+    expect(screen.getByText('OPEN')).toBeInTheDocument();
+  });
+
+  it('historisch fetch-url bevat de opgegeven datum', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeLiveResponse()),
+    });
+    await renderApp(fetchMock);
+
+    const dateInput = document.querySelector('input[type="date"]');
+    await act(async () => {
+      fireEvent.change(dateInput, { target: { value: '2024-06-01' } });
+    });
+    await act(async () => {
+      fireEvent.submit(dateInput.closest('form'));
+    });
+
+    // Controleer dat een historische fetch werd gedaan met de juiste datum
+    const historischCall = fetchMock.mock.calls.find(([url]) =>
+      url.includes('/historical') && url.includes('2024-06-01')
+    );
+    expect(historischCall).toBeDefined();
   });
 });

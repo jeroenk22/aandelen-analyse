@@ -490,12 +490,12 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             return None
         profile = profile_data[0]
 
-        # ── 2. Koersgeschiedenis (3 jaar dagelijks) ────────────────
-        three_years_ago = (ref_date - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
+        # ── 2. Koersgeschiedenis (5 jaar dagelijks, max op Starter-plan) ──
+        five_years_ago = (ref_date - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
         today = ref_date.strftime("%Y-%m-%d")
         hist_data = _fmp_get(
             "/historical-price-eod/full",
-            {"symbol": ticker, "from": three_years_ago, "to": today},
+            {"symbol": ticker, "from": five_years_ago, "to": today},
         )
         if hist_data == "PREMIUM":
             return {"error": f"{ticker} vereist een betaald FMP-plan (niet beschikbaar op gratis tier)", "ticker": ticker}
@@ -516,6 +516,18 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             return None
 
         price = float(hist["Close"].iloc[-1])
+
+        # ── OHLCV voor de referentiedag ────────────────────────────
+        last_raw = hist_list[-1]
+        ohlc_day = {
+            "date":      str(hist.index[-1].date()),
+            "open":      last_raw.get("open"),
+            "high":      last_raw.get("high"),
+            "low":       last_raw.get("low"),
+            "close":     last_raw.get("close"),
+            "adj_close": last_raw.get("adjClose"),
+            "volume":    last_raw.get("volume"),
+        }
 
         # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
         # Fundamentals zijn niet beschikbaar voor historische datums op Starter-plan
@@ -627,6 +639,11 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "historical_avg_pfcf":  _r(hist_pfcf, 2),
             "dcf_fair_value":       _r(dcf_fv, 2),
             "fundamentals_unavailable": historical_mode,
+            "ohlc_day":             ohlc_day,
+            "price_history": [
+                {"date": str(idx.date()), "close": round(float(val), 2)}
+                for idx, val in hist["Close"].items()
+            ],
         }
     except Exception as e:
         print(f"  ⚠ Fout bij {ticker}: {e}")
