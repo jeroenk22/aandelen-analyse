@@ -730,8 +730,15 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                 intraday_df = intraday_df.set_index("date")
                 intraday_df = intraday_df.rename(columns={"close": "Close", "volume": "Volume"})
 
+                rsi_intraday_series = _calc_rsi_local(intraday_df["Close"])
                 intraday_history = [
-                    {"date": str(idx), "close": round(float(val), 2)}
+                    {
+                        "date":  str(idx),
+                        "close": round(float(val), 2),
+                        "rsi":   round(float(rsi_intraday_series.loc[idx]), 1)
+                                 if idx in rsi_intraday_series.index and not pd.isna(rsi_intraday_series.loc[idx])
+                                 else None,
+                    }
                     for idx, val in intraday_df["Close"].items()
                 ]
 
@@ -762,7 +769,15 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                 if len(intraday_df) >= 20:
                     _, apz_up_intraday, apz_lo_intraday = calc_apz(intraday_df["Close"])
 
-        # ── 13. MA-waarden voor chart-overlay (limit=500 ≈ 2 jaar) ──
+        # ── 13. RSI-waarden voor chart-overlay (lokale berekening op volledige history) ──
+        rsi_hist_series = _calc_rsi_local(hist["Close"])
+        rsi_history: dict = {
+            str(idx.date()): round(float(v), 1)
+            for idx, v in rsi_hist_series.items()
+            if not pd.isna(v)
+        }
+
+        # ── 14. MA-waarden voor chart-overlay (limit=500 ≈ 2 jaar) ──
         ma20_history: dict = {}
         ma200_history: dict = {}
         if not historical_mode:
@@ -778,6 +793,16 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                     dk = (item.get("date") or "")[:10]
                     if dk and item.get("sma") is not None:
                         ma200_history[dk] = round(float(item["sma"]), 2)
+
+        # Lokale fallback: bereken MA uit koershistorie als API leeg is (bijv. historische modus)
+        if not ma20_history:
+            for idx, val in hist["Close"].rolling(20).mean().items():
+                if not pd.isna(val):
+                    ma20_history[str(idx.date())] = round(float(val), 2)
+        if not ma200_history:
+            for idx, val in hist["Close"].rolling(200).mean().items():
+                if not pd.isna(val):
+                    ma200_history[str(idx.date())] = round(float(val), 2)
 
         return {
             "ticker":               ticker,
@@ -830,6 +855,7 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                 {
                     "date":  str(idx.date()),
                     "close": round(float(val), 2),
+                    "rsi":   rsi_history.get(str(idx.date())),
                     "ma20":  ma20_history.get(str(idx.date())),
                     "ma200": ma200_history.get(str(idx.date())),
                 }

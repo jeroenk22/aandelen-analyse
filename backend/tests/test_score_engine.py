@@ -774,8 +774,8 @@ def _mock_fmp_live(path, params=None):
         }]
     if path == "/sector-performance":
         return [{"sector": "Technology", "changesPercentage": "1.2"}]
-    # Technische indicatoren: geef lege lijst terug → fallback op lokale berekening
-    if path.startswith("/technical_indicator/"):
+    # Technische indicatoren (stable API): geef lege lijst terug → fallback op lokale berekening
+    if path.startswith("/technical-indicators/"):
         return []
     # Intraday: geef lege lijst terug → geen intraday data
     if path.startswith("/historical-chart/"):
@@ -859,3 +859,51 @@ class TestOhlcDayEnPriceHistory:
         assert result is not None
         assert "ohlc_day" in result
         assert "price_history" in result
+
+    def test_price_history_bevat_rsi(self):
+        """price_history moet rsi veld bevatten (lokaal berekend)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        rsi_waarden = [r["rsi"] for r in result["price_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "price_history moet RSI-waarden bevatten"
+        assert all(0 <= v <= 100 for v in rsi_waarden), "RSI-waarden moeten tussen 0 en 100 liggen"
+
+    def test_price_history_rsi_ook_in_historische_modus(self):
+        """RSI moet ook beschikbaar zijn in historische modus (lokale berekening)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        rsi_waarden = [r["rsi"] for r in result["price_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "RSI moet ook in historische modus aanwezig zijn"
+
+    def test_ma_aanwezig_in_historische_modus(self):
+        """MA20/MA200 moeten lokaal berekend worden in historische modus (geen API)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        ma20_waarden  = [r["ma20"]  for r in result["price_history"] if r.get("ma20")  is not None]
+        ma200_waarden = [r["ma200"] for r in result["price_history"] if r.get("ma200") is not None]
+        assert len(ma20_waarden)  > 0, "MA20 moet lokaal berekend worden in historische modus"
+        assert len(ma200_waarden) > 0, "MA200 moet lokaal berekend worden in historische modus"
+
+    def test_intraday_history_bevat_rsi_bij_live_data(self):
+        """intraday_history moet rsi bevatten als intraday data beschikbaar is."""
+        # 25 candles over meerdere dagen (4-uurs intervallen, uur 0–20 per dag)
+        from datetime import date, timedelta
+        candles = []
+        for i in range(25):
+            dag = date(2024, 1, 15) - timedelta(days=i // 5)
+            uur = (i % 5) * 4
+            candles.append({
+                "date": f"{dag} {uur:02d}:00:00",
+                "close": 180.0 + i, "open": 180.0, "high": 182.0, "low": 179.0, "volume": 1000000,
+            })
+        intraday_candles = candles
+
+        def mock_met_intraday(path, params=None):
+            if path == "/historical-chart/4hour":
+                return list(reversed(intraday_candles))
+            return _mock_fmp_live(path, params)
+
+        with patch.object(engine, "_fmp_get", side_effect=mock_met_intraday):
+            result = engine.fetch_stock_data("AAPL")
+        rsi_waarden = [r["rsi"] for r in result["intraday_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "intraday_history moet RSI-waarden bevatten"

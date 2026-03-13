@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { API_BASE } from "../constants";
 
@@ -25,6 +25,7 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
   const [intradayData, setIntradayData]       = useState([]);
   const [intradayLoading, setIntradayLoading] = useState(false);
   const [showMA, setShowMA]                   = useState(true);
+  const [showRSI, setShowRSI]                 = useState(false);
 
   // Reset intraday bij wisselen van aandeel
   useEffect(() => {
@@ -56,9 +57,15 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
   const isPositive = change == null || change >= 0;
   const lineColor  = isPositive ? "#22C55E" : "#EF4444";
 
-  // MA-lijnen alleen tonen bij EOD en als data beschikbaar is
-  const hasMA20  = showMA && !showIntraday && sliced.some(p => p.ma20  != null);
-  const hasMA200 = showMA && !showIntraday && sliced.some(p => p.ma200 != null);
+  // MA-data beschikbaar (onafhankelijk van showMA, voor knopzichtbaarheid)
+  const ma20Exists  = !showIntraday && sliced.some(p => p.ma20  != null);
+  const ma200Exists = !showIntraday && sliced.some(p => p.ma200 != null);
+  // MA-lijnen alleen tekenen als data beschikbaar én MA aan staat
+  const hasMA20  = showMA && ma20Exists;
+  const hasMA200 = showMA && ma200Exists;
+
+  // RSI-data beschikbaar
+  const rsiExists = sliced.some(p => p.rsi != null);
 
   const labelInterval = Math.max(1, Math.floor(sliced.length / 6));
   const chartData = sliced.map((p, i) => ({
@@ -82,6 +89,10 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
     color:        active ? color         : "#475569",
     fontWeight:   active ? 700           : 400,
   });
+
+  // RSI-kleur op basis van waarde (overbought/oversold)
+  const rsiColor = (v) => v >= 70 ? "#EF4444" : v <= 30 ? "#22C55E" : "#38BDF8";
+  const lastRsi  = [...chartData].reverse().find(p => p.rsi != null)?.rsi;
 
   return (
     <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
@@ -119,8 +130,8 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
             </button>
           ))}
 
-          {/* MA toggle (alleen bij EOD) */}
-          {!showIntraday && (hasMA20 || hasMA200) && (
+          {/* MA toggle (alleen bij EOD, zichtbaar als data beschikbaar) */}
+          {(ma20Exists || ma200Exists) && (
             <>
               <div style={{ width: 1, height: 16, background: "#1E2D45", margin: "0 2px" }} />
               <button onClick={() => setShowMA(p => !p)} style={btnStyle(showMA, "#F59E0B")}>
@@ -128,10 +139,17 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
               </button>
             </>
           )}
+
+          {/* RSI toggle */}
+          {rsiExists && (
+            <button onClick={() => setShowRSI(p => !p)} style={btnStyle(showRSI, "#38BDF8")}>
+              RSI
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Grafiek */}
+      {/* Koersgrafiek */}
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <defs>
@@ -190,6 +208,46 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
         <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 10, color: "#475569", fontFamily: "'DM Mono'" }}>
           {hasMA20  && <span><span style={{ color: "#F59E0B", marginRight: 4 }}>━━</span>MA20</span>}
           {hasMA200 && <span><span style={{ color: "#8B5CF6", marginRight: 4 }}>━━</span>MA200</span>}
+        </div>
+      )}
+
+      {/* RSI paneel */}
+      {showRSI && rsiExists && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'" }}>RSI (14)</span>
+            {lastRsi != null && (
+              <span style={{ fontSize: 11, fontFamily: "'DM Mono'", fontWeight: 700, color: rsiColor(lastRsi) }}>
+                {lastRsi.toFixed(1)}
+                {lastRsi >= 70 && <span style={{ marginLeft: 4, fontSize: 10 }}>overbought</span>}
+                {lastRsi <= 30 && <span style={{ marginLeft: 4, fontSize: 10 }}>oversold</span>}
+              </span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={80}>
+            <ComposedChart data={chartData} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1E2D45" vertical={false} />
+              <XAxis dataKey="label" hide />
+              <YAxis
+                domain={[0, 100]} ticks={[30, 50, 70]}
+                tick={{ fontSize: 9, fill: "#475569", fontFamily: "'DM Mono'" }}
+                tickLine={false} axisLine={false} width={56}
+              />
+              <Tooltip
+                contentStyle={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 8, fontSize: 11, fontFamily: "'DM Mono'" }}
+                labelFormatter={(_l, payload) => payload?.[0]?.payload?.date ?? ""}
+                formatter={(v) => [Number(v).toFixed(1), "RSI"]}
+              />
+              <ReferenceLine y={70} stroke="#EF444444" strokeDasharray="3 2" />
+              <ReferenceLine y={30} stroke="#22C55E44" strokeDasharray="3 2" />
+              <ReferenceLine y={50} stroke="#1E2D45" strokeDasharray="2 2" />
+              <Line
+                type="monotone" dataKey="rsi"
+                stroke="#38BDF8" strokeWidth={1.5}
+                dot={false} activeDot={{ r: 3 }} connectNulls
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       )}
 
