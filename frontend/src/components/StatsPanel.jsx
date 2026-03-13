@@ -14,7 +14,7 @@ export default function StatsPanel({ holdings }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Statistiek kaarten */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+      <div className="stats-grid">
         {stats.map((s, i) => (
           <div key={i} style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontFamily: "'DM Mono'" }}>{s.label.toUpperCase()}</div>

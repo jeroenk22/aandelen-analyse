@@ -9,6 +9,15 @@ function OhlcTable({ ohlc, currency, isHistoricalMode }) {
   const fmtVol = (v) => v == null ? "—" : Number(v).toLocaleString("nl-NL");
   const dateStr = new Date(ohlc.date).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
 
+  const ohlcItems = [
+    { label: "Open",     value: fmtVal(ohlc.open),      color: "#E2E8F0" },
+    { label: "High",     value: fmtVal(ohlc.high),      color: "#22C55E" },
+    { label: "Low",      value: fmtVal(ohlc.low),       color: "#EF4444" },
+    { label: "Close",    value: fmtVal(ohlc.close),     color: "#93C5FD" },
+    ...(ohlc.adj_close != null ? [{ label: "Adj Close", value: fmtVal(ohlc.adj_close), color: "#94A3B8" }] : []),
+    { label: "Volume",   value: fmtVol(ohlc.volume),    color: "#64748B" },
+  ];
+
   return (
     <div style={{ marginBottom: 16, background: "#060C18", borderRadius: 10, border: isHistoricalMode ? "1px solid #F59E0B44" : "1px solid #1E2D45", overflow: "hidden" }}>
       <div style={{ padding: "8px 14px", borderBottom: "1px solid #1E2D45", display: "flex", alignItems: "center", gap: 8 }}>
@@ -18,25 +27,36 @@ function OhlcTable({ ohlc, currency, isHistoricalMode }) {
         }
         <span style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'" }}>· {dateStr}</span>
       </div>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr style={{ background: "#060C18" }}>
-            {["Open", "High", "Low", "Close", ...(ohlc.adj_close != null ? ["Adj Close"] : []), "Volume"].map(h => (
-              <th key={h} style={{ padding: "7px 14px", textAlign: "right", fontSize: 10, color: "#475569", fontWeight: 600, fontFamily: "'DM Mono'", letterSpacing: "0.06em" }}>{h.toUpperCase()}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#E2E8F0" }}>{fmtVal(ohlc.open)}</td>
-            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#22C55E" }}>{fmtVal(ohlc.high)}</td>
-            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#EF4444" }}>{fmtVal(ohlc.low)}</td>
-            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, fontWeight: 700, color: "#93C5FD" }}>{fmtVal(ohlc.close)}</td>
-            {ohlc.adj_close != null && <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: "#94A3B8" }}>{fmtVal(ohlc.adj_close)}</td>}
-            <td style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 12, color: "#64748B" }}>{fmtVol(ohlc.volume)}</td>
-          </tr>
-        </tbody>
-      </table>
+
+      {/* Desktop: tabelweergave */}
+      <div className="ohlc-desktop">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "#060C18" }}>
+              {ohlcItems.map(item => (
+                <th key={item.label} style={{ padding: "7px 14px", textAlign: "right", fontSize: 10, color: "#475569", fontWeight: 600, fontFamily: "'DM Mono'", letterSpacing: "0.06em" }}>{item.label.toUpperCase()}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {ohlcItems.map(item => (
+                <td key={item.label} style={{ padding: "9px 14px", textAlign: "right", fontFamily: "'DM Mono'", fontSize: 13, color: item.color, fontWeight: item.label === "Close" ? 700 : 400 }}>{item.value}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobiel: kaart-raster */}
+      <div className="ohlc-mobile">
+        {ohlcItems.map(item => (
+          <div key={item.label}>
+            <div style={{ fontSize: 9, color: "#475569", fontFamily: "'DM Mono'", letterSpacing: "0.05em", marginBottom: 3 }}>{item.label.toUpperCase()}</div>
+            <div style={{ fontSize: 13, fontFamily: "'DM Mono'", color: item.color, fontWeight: item.label === "Close" ? 700 : 500 }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -178,7 +198,7 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
         />
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="detail-grid">
         {/* Linker kolom: holding-info, OHLCV, timeframe scores, raw data */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Holding header */}
