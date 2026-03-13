@@ -95,6 +95,26 @@ export default function App() {
   const [useCache, setUseCache] = useState(true);
   const [tickerInput, setTickerInput] = useState("");
   const [activeTickers, setActiveTickers] = useState("");
+  const [historicalDate, setHistoricalDate] = useState("");
+  const [historicalDateInput, setHistoricalDateInput] = useState("");
+  const isHistoricalMode = !!historicalDate;
+
+  const fetchHistoricalData = useCallback(async (date, tickers = activeTickers) => {
+    setLoading(true);
+    try {
+      const tickersParam = tickers ? `&tickers=${encodeURIComponent(tickers)}` : "";
+      const res = await fetch(`${API_BASE}/historical?date=${date}${tickersParam}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setData(json);
+      setUseMock(false);
+    } catch (e) {
+      console.warn("Historische data niet beschikbaar:", e);
+      setUseMock(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTickers]);
 
   const fetchLiveData = useCallback(async (cachePref = useCache, tickers = activeTickers) => {
     setLoading(true);
@@ -170,9 +190,11 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'" }}>
               {useMock
                 ? "⚠ Mock data — start backend voor live data"
-                : data.cached
-                  ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
-                  : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
+                : isHistoricalMode
+                  ? `🕐 Historische analyse · ${new Date(historicalDate).toLocaleDateString("nl-NL", { day: "2-digit", month: "long", year: "numeric" })}`
+                  : data.cached
+                    ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
+                    : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
               }
               {activeTickers && <span style={{ color: "#3B82F6", marginLeft: 8 }}>· {activeTickers}</span>}
             </div>
@@ -209,19 +231,53 @@ export default function App() {
           )}
         </form>
 
+        {/* HISTORISCHE DATUM PICKER */}
+        <form onSubmit={e => {
+          e.preventDefault();
+          if (!historicalDateInput) return;
+          setHistoricalDate(historicalDateInput);
+          fetchHistoricalData(historicalDateInput);
+        }} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="date"
+            value={historicalDateInput}
+            onChange={e => setHistoricalDateInput(e.target.value)}
+            max={new Date().toISOString().split("T")[0]}
+            style={{
+              padding: "7px 10px", borderRadius: 6, background: "#060C18",
+              border: `1px solid ${isHistoricalMode ? "#F59E0B" : "#1E3A5F"}`,
+              color: "#E2E8F0", fontSize: 12, fontFamily: "'DM Mono'", outline: "none",
+              colorScheme: "dark",
+            }}
+          />
+          <button type="submit"
+            style={{ padding: "7px 12px", borderRadius: 6, background: "#2D1F00", border: "1px solid #F59E0B", color: "#F59E0B", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+            🕐 Historisch
+          </button>
+          {isHistoricalMode && (
+            <button type="button" onClick={() => {
+              setHistoricalDate("");
+              setHistoricalDateInput("");
+              fetchLiveData(useCache);
+            }} style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer" }}>
+              ✕ Live
+            </button>
+          )}
+        </form>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <IndicatorTooltip tooltip="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden." direction="down">
             <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
-              <input type="checkbox" checked={useCache}
+              <input type="checkbox" checked={useCache} disabled={isHistoricalMode}
                 onChange={e => {
                   setUseCache(e.target.checked);
                   fetchLiveData(e.target.checked);
                 }}
-                style={{ accentColor: "#3B82F6", width: 14, height: 14, cursor: "pointer" }} />
+                style={{ accentColor: "#3B82F6", width: 14, height: 14, cursor: isHistoricalMode ? "not-allowed" : "pointer" }} />
               ⚡ Cache
             </label>
           </IndicatorTooltip>
-          <button className="hov" onClick={() => fetchLiveData(useCache)}
+          <button className="hov" onClick={() => isHistoricalMode ? fetchHistoricalData(historicalDate) : fetchLiveData(useCache)}
             style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
             {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
           </button>
@@ -472,6 +528,28 @@ export default function App() {
                 const desc     = interp?.label;
                 const tooltip  = interp?.tooltip;
                 const dotColor = signalDotColor(interp?.signal);
+
+                // Fundamentals niet beschikbaar in historische modus (Starter-plan beperking)
+                const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "dcf_discount"]);
+                const fundamentalUnavailable = selected.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
+
+                if (fundamentalUnavailable) {
+                  return (
+                    <div key={key} style={{ marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
+                        <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
+                          {indLabel}
+                        </span>
+                        <span style={{ fontSize: 10, color: "#92400E", fontStyle: "italic", flexShrink: 0, background: "#451A0320", padding: "2px 8px", borderRadius: 4, border: "1px solid #92400E44" }}>
+                          Niet beschikbaar in Starter pakket
+                        </span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: "#1E2D45" }} />
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={key} style={{ marginBottom: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, alignItems: "flex-start", gap: 8 }}>
