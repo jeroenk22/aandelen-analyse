@@ -2,7 +2,7 @@
 
 ## Projectoverzicht
 
-ETF Intelligence Dashboard: analyseert aandelen op in/uitstap-momenten via een gewogen score-algoritme (11 indicatoren × 3 timeframes).
+ETF Intelligence Dashboard: analyseert aandelen op in/uitstap-momenten via een gewogen score-algoritme (11 indicatoren × 4 timeframes: intraday/dag/week/maand).
 
 ```
 aandelen-analyse/
@@ -28,7 +28,7 @@ uvicorn etf_score_engine:app --reload   # → http://localhost:8000
 cd frontend && npm install && npm run dev  # → http://localhost:5173
 ```
 
-## FMP API — Beperkingen per plan
+## FMP API — Huidig plan: Premium ($69/mo)
 
 De app gebruikt **Financial Modeling Prep (FMP)** via `https://financialmodelingprep.com/stable`.
 
@@ -36,24 +36,29 @@ De app gebruikt **Financial Modeling Prep (FMP)** via `https://financialmodeling
 |---|---|---|---|
 | Basic | Gratis | 5 jaar | 250/dag |
 | Starter | $29/mo | 5 jaar | 300/min |
-| Premium | $69/mo | 30+ jaar | 750/min |
+| **Premium** | **$69/mo** | **30+ jaar** | **750/min** |
 
-### Endpoints die dit project gebruikt
+### Endpoints die dit project gebruikt (Premium)
 
-| Endpoint | Starter | Opmerking |
+| Endpoint | Beschikbaar | Opmerking |
 |---|---|---|
 | `/profile` | ✅ Worldwide | Bedrijfsnaam, sector |
-| `/historical-price-eod/full` | ✅ (5 jaar) | Koersgeschiedenis dagelijks |
+| `/historical-price-eod/full` | ✅ 30 jaar | Koersgeschiedenis dagelijks |
 | `/ratios-ttm` | ✅ US-only | P/E, PEG, P/FCF TTM |
+| `/technical_indicator/{interval}/{symbol}` | ✅ Premium | RSI, SMA, EMA via API |
+| `/historical-chart/{interval}/{symbol}` | ✅ Premium | Intraday (1h, 4h) koersdata |
+| `/sector-performance` | ✅ Premium | Actuele sectorprestaties |
 | `/etf-holder` | ❌ Niet beschikbaar | Alleen op Ultimate ($139/mo) |
 | `/search-symbol` | ✅ Worldwide | ISIN → ticker |
 
-### Belangrijke beperkingen op Starter
+### Belangrijke noten op Premium
 
 - **`/ratios-ttm`** werkt alleen voor **US-genoteerde aandelen** (NVDA, AAPL etc.)
-- **Niet-US aandelen** (TSM = Taiwan, ASML = Nederland): fundamentals (P/E, PEG, P/FCF) zijn leeg — technische analyse werkt wél
-- **`/etf-holder`** is NIET beschikbaar op Starter of Premium — holdings handmatig instellen in `config.json`
-- **Historische data** max 5 jaar op Starter (voldoende, want we vragen 3 jaar op)
+- **Niet-US aandelen** (TSM, ASML): fundamentals zijn leeg — technische analyse werkt wél
+- **`/etf-holder`** is NIET beschikbaar op Premium — holdings handmatig instellen in `config.json`
+- **Historische data** tot 30 jaar beschikbaar
+- **Technische indicatoren** worden opgehaald via API (RSI, SMA20, SMA200) met fallback op lokale berekening
+- **Intraday** 4-uurs data beschikbaar via `/historical-chart/4hour/{symbol}`
 
 ### API-foutcodes
 
@@ -81,9 +86,10 @@ apz:             8%   # Adaptive Price Zone
 ### Timeframe gewichten (in `TIMEFRAME_WEIGHTS`)
 
 ```
-daily:   30%
-weekly:  40%
-monthly: 30%
+intraday: 15%   # 4-uurs intraday (nieuw, Premium)
+daily:    25%
+weekly:   35%
+monthly:  25%
 ```
 
 ### Signalen
@@ -121,12 +127,13 @@ cd frontend && npm test
 
 ## Bekende issues / TODO
 
-- [ ] Niet-US aandelen (TSM, ASML) krijgen geen fundamentals op Starter-plan → score is dan puur technisch
+- [ ] Niet-US aandelen (TSM, ASML) krijgen geen fundamentals — score is dan puur technisch
 - [ ] ETF-holdings ophalen via API (`/etf-holder`) vereist Ultimate-plan ($139/mo) → gebruik `config.json`
-- [ ] Historical data picker (branch: `claude/add-historical-data-picker-S4E8M`)
+- [ ] Intraday data niet beschikbaar in historische modus (API geeft geen historische intraday terug)
+- [ ] Sector performance mapping: FMP-sectornamen moeten overeenkomen met `/profile` sector-veld
 
 ## Git workflow
 
-- Ontwikkeltak: `claude/add-historical-data-picker-S4E8M`
+- Huidige feature-tak: `feature/premium-api-upgrade`
 - Push altijd naar de juiste branch: `git push -u origin <branch-naam>`
 - Nooit pushen naar `master` zonder expliciete toestemming

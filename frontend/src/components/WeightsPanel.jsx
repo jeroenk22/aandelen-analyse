@@ -4,7 +4,7 @@ import { INDICATOR_LABELS } from "../constants";
 // Gewichtenpaneel met sliders voor timeframes en indicatoren + live score preview
 // Props: weights, setWeights, indWeights, setIndWeights, liveScore, liveSignal
 export default function WeightsPanel({ weights, setWeights, indWeights, setIndWeights, liveScore, liveSignal }) {
-  const timeframeLabels = { daily: "Dagelijks", weekly: "Wekelijks", monthly: "Maandelijks" };
+  const timeframeLabels = { intraday: "Intraday (4u)", daily: "Dagelijks", weekly: "Wekelijks", monthly: "Maandelijks" };
   const totalTimeframe = Object.values(weights).reduce((a, b) => a + b, 0);
 
   return (

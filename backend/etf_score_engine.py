@@ -13,6 +13,8 @@ API endpoints:
   GET /etf                    → gewogen ETF-score voor alle holdings
   GET /config                 → huidige gewichten
   POST /config                → gewichten aanpassen
+  GET /sector-performance     → actuele sectorprestaties
+  GET /intraday/{ticker}      → intraday 4-uurs koersdata
 """
 
 import json
@@ -44,21 +46,26 @@ if FMP_API_KEY == "demo":
     print("⚠ Geen FMP_API_KEY gevonden — stel FMP_API_KEY in via .env of omgevingsvariabele.")
 
 # ─────────────────────────────────────────────
-# IN-MEMORY CACHE (per ISIN of 'default')
+# IN-MEMORY CACHE
 # ─────────────────────────────────────────────
 
 _etf_cache: Dict[str, dict] = {}
 _etf_cache_time: Dict[str, datetime] = {}
 CACHE_DURATION_MINUTES = 60
 
+# Cache voor sectorprestaties (vernieuwd elke 60 minuten)
+_sector_perf_cache: dict = {}
+_sector_perf_cache_time: Optional[datetime] = None
+
 # ─────────────────────────────────────────────
 # CONFIGURATIE — pas gewichten hier aan
 # ─────────────────────────────────────────────
 
 TIMEFRAME_WEIGHTS = {
-    "daily":   0.30,
-    "weekly":  0.40,
-    "monthly": 0.30,
+    "intraday": 0.15,   # 4-uurs intraday (Premium)
+    "daily":    0.25,
+    "weekly":   0.35,
+    "monthly":  0.25,
 }
 
 INDICATOR_WEIGHTS = {
@@ -169,12 +176,56 @@ def _fmp_get(path: str, params: dict = None):
         return None
 
 
+def _fetch_indicator(ticker: str, ind_type: str, period: int,
+                     interval: str = "daily", limit: int = 50) -> Optional[list]:
+    """Haal technische indicator op via FMP. Geeft lijst (nieuwste eerst) of None terug.
+    ind_type: 'rsi', 'sma', 'ema', 'standardDeviation', 'adx', 'williams'
+    interval: 'daily', 'weekly', 'monthly', '1hour', '4hour'
+    """
+    data = _fmp_get(
+        f"/technical_indicator/{interval}/{ticker}",
+        {"type": ind_type, "period": period, "limit": limit}
+    )
+    if isinstance(data, list) and len(data) > 0:
+        return data
+    return None
+
+
+def fetch_sector_performance() -> dict:
+    """Haal actuele sectorprestaties op van FMP (gecacht per 60 min).
+    Geeft dict terug: {sector_naam: pct_change}
+    """
+    global _sector_perf_cache, _sector_perf_cache_time
+    now = datetime.now()
+    if (_sector_perf_cache_time and
+            (now - _sector_perf_cache_time).total_seconds() < CACHE_DURATION_MINUTES * 60):
+        return _sector_perf_cache
+
+    data = _fmp_get("/sector-performance")
+    if not data or isinstance(data, str) or not isinstance(data, list):
+        return _sector_perf_cache  # geef vorige waarde terug bij fout
+
+    result = {}
+    for item in data:
+        sector = item.get("sector", "")
+        pct = item.get("changesPercentage", 0)
+        if isinstance(pct, str):
+            pct = pct.replace("%", "").replace("+", "").strip()
+        try:
+            result[sector] = float(pct)
+        except (ValueError, TypeError):
+            pass
+
+    _sector_perf_cache = result
+    _sector_perf_cache_time = now
+    return result
+
+
 def resolve_isin_to_ticker(isin: str) -> Optional[str]:
     """Zet ISIN om naar beursticker via FMP zoekfunctie."""
     data = _fmp_get("/search-symbol", {"query": isin, "limit": 5})
     if not data or not isinstance(data, list):
         return None
-    # Prefereer exacte ISIN match, anders eerste resultaat
     for item in data:
         if item.get("isin") == isin:
             return item["symbol"]
@@ -196,7 +247,6 @@ def fetch_etf_holdings(ticker: str, top_n: int = 10) -> list:
         result.append({
             "ticker": h.get("asset", ""),
             "name": h.get("name", h.get("asset", "")),
-            # FMP geeft gewicht als percentage (bijv. 5.4), omzetten naar decimaal (0.054)
             "etf_weight": round((h.get("weightPercentage", 0) or 0) / 100, 6),
         })
     return [h for h in result if h["ticker"]]
@@ -249,6 +299,15 @@ def calc_rsi_divergence(close_s: pd.Series, rsi_s: pd.Series, lookback: int = 14
         return "BEARISH"
 
     return "NEUTRAAL"
+
+
+def _calc_rsi_local(series: pd.Series, period: int = 14) -> pd.Series:
+    """Bereken RSI lokaal als fallback voor API."""
+    d    = series.diff()
+    gain = d.clip(lower=0).rolling(period).mean()
+    loss = (-d.clip(upper=0)).rolling(period).mean()
+    rs   = gain / loss
+    return 100 - (100 / (1 + rs))
 
 
 # ─────────────────────────────────────────────
@@ -334,8 +393,7 @@ def score_ma20(price: float, ma20: float) -> float:
     return 25.0
 
 def score_panic(bb_pct_b: float, vol_spike: float) -> float:
-    """Paniekdetector op basis van Bollinger Band %B + volume spike.
-    Hoge score = prijspaniek (= koopkans). Lage score = euforie (= uitstapkans)."""
+    """Paniekdetector op basis van Bollinger Band %B + volume spike."""
     if bb_pct_b is None: return 50.0
     if bb_pct_b < 0:     s = 95.0
     elif bb_pct_b < 0.2: s = 80.0
@@ -348,13 +406,11 @@ def score_panic(bb_pct_b: float, vol_spike: float) -> float:
     return s
 
 def score_rsi_divergence(div: str) -> float:
-    """Bullish divergentie = koopkans (hoog), bearish = verkoopkans (laag)."""
     if div == "BULLISH": return 85.0
     if div == "BEARISH": return 20.0
     return 50.0
 
 def score_apz(price: float, apz_lower: float, apz_upper: float) -> float:
-    """APZ positie: onder ondergrens = oversold (hoog), boven bovengrens = overbought (laag)."""
     if not price or apz_lower is None or apz_upper is None: return 50.0
     zone = apz_upper - apz_lower
     if zone <= 0: return 50.0
@@ -376,7 +432,6 @@ def _interp(signal: str, label: str, value) -> dict:
     return {"signal": signal, "label": label, "value": value}
 
 def _with_meta(d: dict, base_key: str) -> dict:
-    """Voeg indicator_label en tooltip toe vanuit INDICATOR_META."""
     meta = INDICATOR_META.get(base_key, {})
     return {**d, "indicator_label": meta.get("label", base_key), "tooltip": meta.get("tooltip", "")}
 
@@ -490,16 +545,15 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             return None
         profile = profile_data[0]
 
-        # ── 2. Koersgeschiedenis (5 jaar dagelijks, max op Starter-plan) ──
-        five_years_ago = (ref_date - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
+        # ── 2. Koersgeschiedenis (30 jaar dagelijks op Premium) ───
+        thirty_years_ago = (ref_date - timedelta(days=30 * 365)).strftime("%Y-%m-%d")
         today = ref_date.strftime("%Y-%m-%d")
         hist_data = _fmp_get(
             "/historical-price-eod/full",
-            {"symbol": ticker, "from": five_years_ago, "to": today},
+            {"symbol": ticker, "from": thirty_years_ago, "to": today},
         )
         if hist_data == "PREMIUM":
             return {"error": f"{ticker} vereist een betaald FMP-plan (niet beschikbaar op gratis tier)", "ticker": ticker}
-        # Stable API geeft een lijst terug; v3 API gaf {"historical": [...]}
         if isinstance(hist_data, dict):
             hist_data = hist_data.get("historical", [])
         if not hist_data or not isinstance(hist_data, list):
@@ -530,7 +584,6 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
         }
 
         # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
-        # Fundamentals zijn niet beschikbaar voor historische datums op Starter-plan
         if not historical_mode:
             ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
             ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
@@ -540,97 +593,216 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
         tpe      = ratios.get("priceToEarningsRatioTTM")
         peg      = ratios.get("priceToEarningsGrowthRatioTTM")
         pfcf     = ratios.get("priceToFreeCashFlowRatioTTM")
-        fcf_ps_r = ratios.get("freeCashFlowPerShareTTM")  # FCF per aandeel uit ratios
+        fcf_ps_r = ratios.get("freeCashFlowPerShareTTM")
 
-        # ── Fundamentals berekenen ─────────────────────────────────
-        fpe    = tpe  # gebruik TTM P/E als forward P/E-benadering
+        fpe    = tpe
         dcf_fv = float(fcf_ps_r) * 25 if fcf_ps_r else None
-
         hist_pe   = tpe * 0.95 if tpe else None
         hist_pfcf = pfcf * 1.05 if pfcf else None
 
-        # ── Technische indicatoren ─────────────────────────────────
-        def calc_rsi(series, period=14):
-            d    = series.diff()
-            gain = d.clip(lower=0).rolling(period).mean()
-            loss = (-d.clip(upper=0)).rolling(period).mean()
-            rs   = gain / loss
-            return 100 - (100 / (1 + rs))
+        # ── 4. Sector performance (live modus) ────────────────────
+        sector = profile.get("sector", "")
+        sector_return = 0.0
+        if not historical_mode:
+            sector_perf = fetch_sector_performance()
+            sector_return = sector_perf.get(sector, 0.0)
 
+        # ── 5. Resample voor wekelijkse / maandelijkse series ─────
         hist_w = hist["Close"].resample("W").last()
         hist_m = hist["Close"].resample("ME").last()
 
-        # RSI + divergentie per timeframe
-        rsi_series_d = calc_rsi(hist["Close"])
-        rsi_d        = rsi_series_d.iloc[-1]
-        rsi_div_d    = calc_rsi_divergence(hist["Close"], rsi_series_d)
+        # ── Hulpfunctie: RSI via API ophalen en als Series teruggeven ──
+        def _try_rsi_api(interval: str, limit: int = 30):
+            """Probeert RSI op te halen via API. Geeft (waarde, series) of (None, None)."""
+            data = _fetch_indicator(ticker, "rsi", 14, interval, limit)
+            if not data:
+                return None, None
+            data_asc = list(reversed(data))
+            vals = []
+            for x in data_asc:
+                v = x.get("rsi")
+                vals.append(float(v) if v is not None else None)
+            series = pd.Series(vals, dtype=float).dropna()
+            if len(series) == 0:
+                return None, None
+            return float(series.iloc[-1]), series
 
-        rsi_series_w = calc_rsi(hist_w)
-        rsi_w        = rsi_series_w.iloc[-1] if len(hist_w) > 14 else None
-        rsi_div_w    = calc_rsi_divergence(hist_w, rsi_series_w) if len(hist_w) > 14 else "NEUTRAAL"
+        # ── 6. RSI per timeframe (API eerst, fallback op lokale berekening) ──
+        if not historical_mode:
+            rsi_val_d, rsi_api_series_d = _try_rsi_api("daily",   30)
+            rsi_val_w, rsi_api_series_w = _try_rsi_api("weekly",  30)
+            rsi_val_m, rsi_api_series_m = _try_rsi_api("monthly", 30)
+        else:
+            rsi_val_d = rsi_val_w = rsi_val_m = None
+            rsi_api_series_d = rsi_api_series_w = rsi_api_series_m = None
 
-        rsi_series_m = calc_rsi(hist_m)
-        rsi_m        = rsi_series_m.iloc[-1] if len(hist_m) > 14 else None
-        rsi_div_m    = calc_rsi_divergence(hist_m, rsi_series_m) if len(hist_m) > 14 else "NEUTRAAL"
+        # Dagelijkse RSI + divergentie
+        if rsi_val_d is not None:
+            rsi_d       = rsi_val_d
+            rsi_series_d = rsi_api_series_d
+        else:
+            rsi_series_d = _calc_rsi_local(hist["Close"])
+            rsi_d        = float(rsi_series_d.iloc[-1])
+        rsi_div_d = calc_rsi_divergence(hist["Close"], rsi_series_d)
 
-        # MA20 per timeframe
-        ma20_d = hist["Close"].rolling(20).mean().iloc[-1]
-        ma20_w = hist_w.rolling(20).mean().iloc[-1] if len(hist_w) >= 20 else hist_w.mean()
-        ma20_m = hist_m.rolling(20).mean().iloc[-1] if len(hist_m) >= 20 else hist_m.mean()
+        # Wekelijkse RSI + divergentie
+        if rsi_val_w is not None:
+            rsi_w        = rsi_val_w
+            rsi_series_w = rsi_api_series_w
+        else:
+            rsi_series_w = _calc_rsi_local(hist_w) if len(hist_w) > 14 else pd.Series(dtype=float)
+            rsi_w        = float(rsi_series_w.iloc[-1]) if len(rsi_series_w) > 14 else None
+        rsi_div_w = calc_rsi_divergence(hist_w, rsi_series_w) if len(rsi_series_w) >= 14 else "NEUTRAAL"
 
-        # MA200
-        ma200 = hist["Close"].rolling(200).mean().iloc[-1] if len(hist) >= 200 else hist["Close"].mean()
+        # Maandelijkse RSI + divergentie
+        if rsi_val_m is not None:
+            rsi_m        = rsi_val_m
+            rsi_series_m = rsi_api_series_m
+        else:
+            rsi_series_m = _calc_rsi_local(hist_m) if len(hist_m) > 14 else pd.Series(dtype=float)
+            rsi_m        = float(rsi_series_m.iloc[-1]) if len(rsi_series_m) > 14 else None
+        rsi_div_m = calc_rsi_divergence(hist_m, rsi_series_m) if len(rsi_series_m) >= 14 else "NEUTRAAL"
 
-        # APZ per timeframe
+        # ── 7. MA20 en MA200 (API eerst, fallback op lokale berekening) ──
+        if not historical_mode:
+            sma20_api  = _fetch_indicator(ticker, "sma", 20,  "daily", 5)
+            sma200_api = _fetch_indicator(ticker, "sma", 200, "daily", 5)
+            ma20_d = (float(sma20_api[0]["sma"])  if sma20_api  and sma20_api[0].get("sma")
+                      else float(hist["Close"].rolling(20).mean().iloc[-1]))
+            ma200  = (float(sma200_api[0]["sma"]) if sma200_api and sma200_api[0].get("sma")
+                      else (float(hist["Close"].rolling(200).mean().iloc[-1]) if len(hist) >= 200
+                            else float(hist["Close"].mean())))
+        else:
+            ma20_d = float(hist["Close"].rolling(20).mean().iloc[-1])
+            ma200  = (float(hist["Close"].rolling(200).mean().iloc[-1])
+                      if len(hist) >= 200 else float(hist["Close"].mean()))
+
+        # MA20 wekelijks en maandelijks (altijd berekend uit dagelijkse data)
+        ma20_w = (hist_w.rolling(20).mean().iloc[-1] if len(hist_w) >= 20 else hist_w.mean())
+        ma20_m = (hist_m.rolling(20).mean().iloc[-1] if len(hist_m) >= 20 else hist_m.mean())
+
+        # ── 8. APZ per timeframe ──────────────────────────────────
         apz_ema_d, apz_up_d, apz_lo_d = calc_apz(hist["Close"])
         apz_ema_w, apz_up_w, apz_lo_w = calc_apz(hist_w) if len(hist_w) >= 20 else (None, None, None)
         apz_ema_m, apz_up_m, apz_lo_m = calc_apz(hist_m) if len(hist_m) >= 20 else (None, None, None)
 
-        # Volume spike
+        # ── 9. Volume spike ───────────────────────────────────────
         vol_avg20 = hist["Volume"].rolling(20).mean().iloc[-1]
         vol_spike = float(hist["Volume"].iloc[-1] / vol_avg20) if vol_avg20 and vol_avg20 > 0 else None
 
-        # Bollinger Bands (paniekdetectie)
+        # ── 10. Bollinger Bands (lokaal berekend) ────────────────
         bb_mid   = hist["Close"].rolling(20).mean().iloc[-1]
         bb_std   = hist["Close"].rolling(20).std().iloc[-1]
         bb_width = float((bb_mid + 2 * bb_std) - (bb_mid - 2 * bb_std))
         bb_pct_b = float((price - (bb_mid - 2 * bb_std)) / bb_width) if bb_width > 0 else None
 
-        # Momentum (1 maand)
+        # ── 11. Momentum (1 maand vs sector) ────────────────────
         p1m = hist["Close"].iloc[-22] if len(hist) >= 22 else hist["Close"].iloc[0]
         mom = ((price - float(p1m)) / float(p1m)) * 100
+
+        # ── 12. Intraday 4-uurs timeframe (live modus, Premium) ──
+        rsi_intraday = rsi_div_intraday = ma20_intraday = None
+        apz_up_intraday = apz_lo_intraday = None
+        intraday_history = []
+
+        if not historical_mode:
+            intraday_from = (ref_date - timedelta(days=90)).strftime("%Y-%m-%d")
+            intraday_raw = _fmp_get(
+                f"/historical-chart/4hour/{ticker}",
+                {"from": intraday_from, "to": today}
+            )
+            if intraday_raw and isinstance(intraday_raw, list) and len(intraday_raw) >= 20:
+                intraday_df = pd.DataFrame(list(reversed(intraday_raw)))
+                intraday_df["date"] = pd.to_datetime(intraday_df["date"])
+                intraday_df = intraday_df.set_index("date")
+                intraday_df = intraday_df.rename(columns={"close": "Close", "volume": "Volume"})
+
+                intraday_history = [
+                    {"date": str(idx), "close": round(float(val), 2)}
+                    for idx, val in intraday_df["Close"].items()
+                ]
+
+                # RSI 4-uurs via API
+                rsi_4h_data = _fetch_indicator(ticker, "rsi", 14, "4hour", 50)
+                if rsi_4h_data:
+                    rsi_4h_asc = list(reversed(rsi_4h_data))
+                    rsi_vals_4h = [float(x["rsi"]) if x.get("rsi") is not None else None
+                                   for x in rsi_4h_asc]
+                    rsi_series_4h = pd.Series(rsi_vals_4h, dtype=float).dropna()
+                    rsi_intraday = float(rsi_series_4h.iloc[-1]) if len(rsi_series_4h) > 0 else None
+                    rsi_div_intraday = (calc_rsi_divergence(intraday_df["Close"], rsi_series_4h)
+                                        if len(rsi_series_4h) >= 14 else "NEUTRAAL")
+                else:
+                    rsi_series_4h = _calc_rsi_local(intraday_df["Close"])
+                    valid_4h = rsi_series_4h.dropna()
+                    rsi_intraday = float(valid_4h.iloc[-1]) if len(valid_4h) > 0 else None
+                    rsi_div_intraday = calc_rsi_divergence(intraday_df["Close"], rsi_series_4h)
+
+                # MA20 4-uurs via API
+                sma20_4h = _fetch_indicator(ticker, "sma", 20, "4hour", 3)
+                if sma20_4h and sma20_4h[0].get("sma"):
+                    ma20_intraday = float(sma20_4h[0]["sma"])
+                elif len(intraday_df) >= 20:
+                    ma20_intraday = float(intraday_df["Close"].rolling(20).mean().iloc[-1])
+
+                # APZ intraday
+                if len(intraday_df) >= 20:
+                    _, apz_up_intraday, apz_lo_intraday = calc_apz(intraday_df["Close"])
+
+        # ── 13. MA-waarden voor chart-overlay (limit=500 ≈ 2 jaar) ──
+        ma20_history: dict = {}
+        ma200_history: dict = {}
+        if not historical_mode:
+            ma20_full = _fetch_indicator(ticker, "sma", 20,  "daily", 500)
+            if ma20_full:
+                for item in ma20_full:
+                    dk = (item.get("date") or "")[:10]
+                    if dk and item.get("sma") is not None:
+                        ma20_history[dk] = round(float(item["sma"]), 2)
+            ma200_full = _fetch_indicator(ticker, "sma", 200, "daily", 500)
+            if ma200_full:
+                for item in ma200_full:
+                    dk = (item.get("date") or "")[:10]
+                    if dk and item.get("sma") is not None:
+                        ma200_history[dk] = round(float(item["sma"]), 2)
 
         return {
             "ticker":               ticker,
             "name":                 profile.get("companyName") or profile.get("name", ticker),
-            "sector":               profile.get("sector", "Technology"),
+            "sector":               sector,
             "current_price":        round(price, 2),
             "currency":             profile.get("currency", "USD"),
-            # RSI
+            "sector_return":        round(sector_return, 2),
+            # RSI per timeframe
             "rsi_daily":            _r(rsi_d, 1),
             "rsi_weekly":           _r(rsi_w, 1),
             "rsi_monthly":          _r(rsi_m, 1),
-            # RSI Divergentie
-            "rsi_divergence_daily":   rsi_div_d,
-            "rsi_divergence_weekly":  rsi_div_w,
-            "rsi_divergence_monthly": rsi_div_m,
-            # MA20
+            "rsi_intraday":         _r(rsi_intraday, 1),
+            # RSI Divergentie per timeframe
+            "rsi_divergence_daily":    rsi_div_d,
+            "rsi_divergence_weekly":   rsi_div_w,
+            "rsi_divergence_monthly":  rsi_div_m,
+            "rsi_divergence_intraday": rsi_div_intraday or "NEUTRAAL",
+            # MA20 per timeframe
             "ma20_daily":           _r(ma20_d, 2),
             "ma20_weekly":          _r(ma20_w, 2),
             "ma20_monthly":         _r(ma20_m, 2),
-            # MA200
+            "ma20_intraday":        _r(ma20_intraday, 2),
+            # MA200 (dagelijks, langetermijntrend)
             "ma200":                _r(ma200, 2),
-            # APZ
+            # APZ per timeframe
             "apz_upper_daily":      apz_up_d,
             "apz_lower_daily":      apz_lo_d,
             "apz_upper_weekly":     apz_up_w,
             "apz_lower_weekly":     apz_lo_w,
             "apz_upper_monthly":    apz_up_m,
             "apz_lower_monthly":    apz_lo_m,
+            "apz_upper_intraday":   apz_up_intraday,
+            "apz_lower_intraday":   apz_lo_intraday,
             # Volume & Bollinger
             "vol_spike":            _r(vol_spike, 2),
             "bb_pct_b":             _r(bb_pct_b, 3),
-            # Overige
+            # Overige indicatoren
             "momentum_1m":          _r(mom, 2),
             "forward_pe":           _r(fpe, 2),
             "historical_avg_pe":    _r(hist_pe, 2),
@@ -640,10 +812,18 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "dcf_fair_value":       _r(dcf_fv, 2),
             "fundamentals_unavailable": historical_mode,
             "ohlc_day":             ohlc_day,
+            # Koersgeschiedenis met MA-overlay voor grafiek
             "price_history": [
-                {"date": str(idx.date()), "close": round(float(val), 2)}
+                {
+                    "date":  str(idx.date()),
+                    "close": round(float(val), 2),
+                    "ma20":  ma20_history.get(str(idx.date())),
+                    "ma200": ma200_history.get(str(idx.date())),
+                }
                 for idx, val in hist["Close"].items()
             ],
+            # Intraday 4-uurs data voor grafiek
+            "intraday_history": intraday_history,
         }
     except Exception as e:
         print(f"  ⚠ Fout bij {ticker}: {e}")
@@ -661,6 +841,8 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
         return {"total_score": 50, "signal": "NEUTRAAL", "error": data["error"], "ticker": data.get("ticker", "")}
 
     p = data["current_price"]
+    # Gebruik sector_return uit de data (live sectordata), val terug op parameter
+    eff_sector = data.get("sector_return", sector_momentum)
 
     def tf_score(rsi_val, ma20_val, rsi_div, apz_lo, apz_up):
         r    = score_rsi(rsi_val)
@@ -669,7 +851,7 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
         fpe  = score_forward_pe(data["forward_pe"], data["historical_avg_pe"])
         peg  = score_peg(data["peg_ratio"])
         pf   = score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"])
-        mom  = score_momentum(data["momentum_1m"], sector_momentum)
+        mom  = score_momentum(data["momentum_1m"], eff_sector)
         dcf  = score_dcf(p, data["dcf_fair_value"])
         pan  = score_panic(data["bb_pct_b"], data["vol_spike"])
         div  = score_rsi_divergence(rsi_div)
@@ -686,19 +868,24 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
                 div * INDICATOR_WEIGHTS["rsi_divergence"] +
                 apz * INDICATOR_WEIGHTS["apz"])
 
-    ds = tf_score(data["rsi_daily"],   data["ma20_daily"],
-                  data["rsi_divergence_daily"],
-                  data["apz_lower_daily"],   data["apz_upper_daily"])
-    ws = tf_score(data["rsi_weekly"],  data["ma20_weekly"],
-                  data["rsi_divergence_weekly"],
-                  data["apz_lower_weekly"],  data["apz_upper_weekly"])
-    ms = tf_score(data["rsi_monthly"], data["ma20_monthly"],
-                  data["rsi_divergence_monthly"],
-                  data["apz_lower_monthly"], data["apz_upper_monthly"])
+    # Scores per timeframe
+    ins = tf_score(data.get("rsi_intraday"),  data.get("ma20_intraday"),
+                   data.get("rsi_divergence_intraday", "NEUTRAAL"),
+                   data.get("apz_lower_intraday"), data.get("apz_upper_intraday"))
+    ds  = tf_score(data["rsi_daily"],   data["ma20_daily"],
+                   data["rsi_divergence_daily"],
+                   data["apz_lower_daily"],   data["apz_upper_daily"])
+    ws  = tf_score(data["rsi_weekly"],  data["ma20_weekly"],
+                   data["rsi_divergence_weekly"],
+                   data["apz_lower_weekly"],  data["apz_upper_weekly"])
+    ms  = tf_score(data["rsi_monthly"], data["ma20_monthly"],
+                   data["rsi_divergence_monthly"],
+                   data["apz_lower_monthly"], data["apz_upper_monthly"])
 
-    total  = (ds * TIMEFRAME_WEIGHTS["daily"] +
-              ws * TIMEFRAME_WEIGHTS["weekly"] +
-              ms * TIMEFRAME_WEIGHTS["monthly"])
+    total  = (ins * TIMEFRAME_WEIGHTS["intraday"] +
+              ds  * TIMEFRAME_WEIGHTS["daily"] +
+              ws  * TIMEFRAME_WEIGHTS["weekly"] +
+              ms  * TIMEFRAME_WEIGHTS["monthly"])
     signal = "KOOP" if total >= 65 else "UITSTAP" if total < 45 else "NEUTRAAL"
 
     return {
@@ -709,49 +896,58 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
         "total_score":   round(total, 1),
         "signal":        signal,
         "scores_by_timeframe": {
-            "daily":   round(ds, 1),
-            "weekly":  round(ws, 1),
-            "monthly": round(ms, 1),
+            "intraday": round(ins, 1),
+            "daily":    round(ds, 1),
+            "weekly":   round(ws, 1),
+            "monthly":  round(ms, 1),
         },
         "indicator_scores": {
             "rsi_daily":              round(score_rsi(data["rsi_daily"]), 1),
             "rsi_weekly":             round(score_rsi(data["rsi_weekly"]), 1),
             "rsi_monthly":            round(score_rsi(data["rsi_monthly"]), 1),
+            "rsi_intraday":           round(score_rsi(data.get("rsi_intraday")), 1),
             "rsi_divergence_daily":   round(score_rsi_divergence(data["rsi_divergence_daily"]), 1),
             "rsi_divergence_weekly":  round(score_rsi_divergence(data["rsi_divergence_weekly"]), 1),
             "rsi_divergence_monthly": round(score_rsi_divergence(data["rsi_divergence_monthly"]), 1),
+            "rsi_divergence_intraday":round(score_rsi_divergence(data.get("rsi_divergence_intraday", "NEUTRAAL")), 1),
             "ma20_daily":             round(score_ma20(p, data["ma20_daily"]), 1),
             "ma20_weekly":            round(score_ma20(p, data["ma20_weekly"]), 1),
             "ma20_monthly":           round(score_ma20(p, data["ma20_monthly"]), 1),
+            "ma20_intraday":          round(score_ma20(p, data.get("ma20_intraday")), 1),
             "ma200":                  round(score_ma200(p, data["ma200"]), 1),
-            "apz_daily":              round(score_apz(p, data["apz_lower_daily"],   data["apz_upper_daily"]), 1),
-            "apz_weekly":             round(score_apz(p, data["apz_lower_weekly"],  data["apz_upper_weekly"]), 1),
-            "apz_monthly":            round(score_apz(p, data["apz_lower_monthly"], data["apz_upper_monthly"]), 1),
+            "apz_daily":              round(score_apz(p, data["apz_lower_daily"],    data["apz_upper_daily"]), 1),
+            "apz_weekly":             round(score_apz(p, data["apz_lower_weekly"],   data["apz_upper_weekly"]), 1),
+            "apz_monthly":            round(score_apz(p, data["apz_lower_monthly"],  data["apz_upper_monthly"]), 1),
+            "apz_intraday":           round(score_apz(p, data.get("apz_lower_intraday"), data.get("apz_upper_intraday")), 1),
             "forward_pe":             round(score_forward_pe(data["forward_pe"], data["historical_avg_pe"]), 1),
             "peg":                    round(score_peg(data["peg_ratio"]), 1),
             "price_fcf":              round(score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]), 1),
-            "momentum":               round(score_momentum(data["momentum_1m"], sector_momentum), 1),
+            "momentum":               round(score_momentum(data["momentum_1m"], eff_sector), 1),
             "dcf_discount":           round(score_dcf(p, data["dcf_fair_value"]), 1),
             "panic":                  round(score_panic(data["bb_pct_b"], data["vol_spike"]), 1),
         },
         "interpretations": {
-            "rsi_daily":              _with_meta(_interp_rsi(data["rsi_daily"],   "dagelijks"),   "rsi"),
-            "rsi_weekly":             _with_meta(_interp_rsi(data["rsi_weekly"],  "wekelijks"),   "rsi"),
-            "rsi_monthly":            _with_meta(_interp_rsi(data["rsi_monthly"], "maandelijks"), "rsi"),
-            "rsi_divergence_daily":   _with_meta(_interp_divergence(data["rsi_divergence_daily"],   "dagelijks"),   "rsi_divergence"),
-            "rsi_divergence_weekly":  _with_meta(_interp_divergence(data["rsi_divergence_weekly"],  "wekelijks"),   "rsi_divergence"),
-            "rsi_divergence_monthly": _with_meta(_interp_divergence(data["rsi_divergence_monthly"], "maandelijks"), "rsi_divergence"),
-            "ma20_daily":             _with_meta(_interp_ma(p, data["ma20_daily"],   "MA20 dagelijks"),   "ma20"),
-            "ma20_weekly":            _with_meta(_interp_ma(p, data["ma20_weekly"],  "MA20 wekelijks"),   "ma20"),
-            "ma20_monthly":           _with_meta(_interp_ma(p, data["ma20_monthly"], "MA20 maandelijks"), "ma20"),
-            "ma200":                  _with_meta(_interp_ma(p, data["ma200"],        "MA200"),            "ma200"),
-            "apz_daily":              _with_meta(_interp_apz(p, data["apz_lower_daily"],   data["apz_upper_daily"],   "dagelijks"),   "apz"),
-            "apz_weekly":             _with_meta(_interp_apz(p, data["apz_lower_weekly"],  data["apz_upper_weekly"],  "wekelijks"),   "apz"),
-            "apz_monthly":            _with_meta(_interp_apz(p, data["apz_lower_monthly"], data["apz_upper_monthly"], "maandelijks"), "apz"),
+            "rsi_daily":              _with_meta(_interp_rsi(data["rsi_daily"],      "dagelijks"),   "rsi"),
+            "rsi_weekly":             _with_meta(_interp_rsi(data["rsi_weekly"],     "wekelijks"),   "rsi"),
+            "rsi_monthly":            _with_meta(_interp_rsi(data["rsi_monthly"],    "maandelijks"), "rsi"),
+            "rsi_intraday":           _with_meta(_interp_rsi(data.get("rsi_intraday"), "4-uurs"),    "rsi"),
+            "rsi_divergence_daily":   _with_meta(_interp_divergence(data["rsi_divergence_daily"],    "dagelijks"),   "rsi_divergence"),
+            "rsi_divergence_weekly":  _with_meta(_interp_divergence(data["rsi_divergence_weekly"],   "wekelijks"),   "rsi_divergence"),
+            "rsi_divergence_monthly": _with_meta(_interp_divergence(data["rsi_divergence_monthly"],  "maandelijks"), "rsi_divergence"),
+            "rsi_divergence_intraday":_with_meta(_interp_divergence(data.get("rsi_divergence_intraday","NEUTRAAL"), "4-uurs"), "rsi_divergence"),
+            "ma20_daily":             _with_meta(_interp_ma(p, data["ma20_daily"],    "MA20 dagelijks"),   "ma20"),
+            "ma20_weekly":            _with_meta(_interp_ma(p, data["ma20_weekly"],   "MA20 wekelijks"),   "ma20"),
+            "ma20_monthly":           _with_meta(_interp_ma(p, data["ma20_monthly"],  "MA20 maandelijks"), "ma20"),
+            "ma20_intraday":          _with_meta(_interp_ma(p, data.get("ma20_intraday"), "MA20 4-uurs"),  "ma20"),
+            "ma200":                  _with_meta(_interp_ma(p, data["ma200"],         "MA200"),            "ma200"),
+            "apz_daily":              _with_meta(_interp_apz(p, data["apz_lower_daily"],    data["apz_upper_daily"],    "dagelijks"),   "apz"),
+            "apz_weekly":             _with_meta(_interp_apz(p, data["apz_lower_weekly"],   data["apz_upper_weekly"],   "wekelijks"),   "apz"),
+            "apz_monthly":            _with_meta(_interp_apz(p, data["apz_lower_monthly"],  data["apz_upper_monthly"],  "maandelijks"), "apz"),
+            "apz_intraday":           _with_meta(_interp_apz(p, data.get("apz_lower_intraday"), data.get("apz_upper_intraday"), "4-uurs"), "apz"),
             "forward_pe":             _with_meta(_interp_forward_pe(data["forward_pe"], data["historical_avg_pe"]),         "forward_pe"),
             "peg":                    _with_meta(_interp_peg(data["peg_ratio"]),                                             "peg"),
             "price_fcf":              _with_meta(_interp_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]),         "price_fcf"),
-            "momentum":               _with_meta(_interp_momentum(data["momentum_1m"], sector_momentum),                    "momentum"),
+            "momentum":               _with_meta(_interp_momentum(data["momentum_1m"], eff_sector),                         "momentum"),
             "dcf_discount":           _with_meta(_interp_dcf(p, data["dcf_fair_value"]),                                    "dcf_discount"),
             "panic":                  _with_meta(_interp_panic(data["bb_pct_b"], data["vol_spike"]),                        "panic"),
         },
@@ -777,14 +973,14 @@ def calculate_etf_score(results: list, holdings: list) -> dict:
 # FASTAPI
 # ─────────────────────────────────────────────
 
-app = FastAPI(title="ETF Intelligence API", version="1.0.0")
+app = FastAPI(title="ETF Intelligence API", version="2.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "ETF Intelligence API draait!"}
+    return {"status": "ok", "message": "ETF Intelligence API draait!", "version": "2.0.0 (Premium)"}
 
 
 @app.get("/score/{ticker}")
@@ -797,7 +993,6 @@ def get_score(ticker: str):
 def get_etf(tickers: str = None, use_cache: bool = True):
     global _etf_cache, _etf_cache_time
 
-    # Normaliseer tickers-param naar gesorteerde sleutel voor cache
     if tickers:
         ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
         cache_key = ",".join(sorted(ticker_list))
@@ -810,9 +1005,7 @@ def get_etf(tickers: str = None, use_cache: bool = True):
         if age_minutes < CACHE_DURATION_MINUTES:
             return {**_etf_cache[cache_key], "cached": True, "cache_age_minutes": round(age_minutes, 1)}
 
-    # Bepaal holdings: custom tickers of standaard ETF_HOLDINGS
     if ticker_list:
-        # Gelijke verdeling over alle opgegeven tickers
         weight = round(1 / len(ticker_list), 6)
         holdings = [{"ticker": t, "name": t, "etf_weight": weight} for t in ticker_list]
     else:
@@ -863,13 +1056,56 @@ def get_historical(date: str, tickers: str = None):
 
     summary = calculate_etf_score(results, holdings)
     return {
-        "summary":        summary,
-        "holdings":       results,
-        "config":         {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
-        "generated_at":   datetime.now().isoformat(),
+        "summary":         summary,
+        "holdings":        results,
+        "config":          {"timeframe_weights": TIMEFRAME_WEIGHTS, "indicator_weights": INDICATOR_WEIGHTS},
+        "generated_at":    datetime.now().isoformat(),
         "historical_date": date,
-        "cached":         False,
+        "cached":          False,
         "cache_age_minutes": 0,
+    }
+
+
+@app.get("/sector-performance")
+def get_sector_performance_endpoint():
+    """Actuele sectorprestaties ophalen van FMP."""
+    return {
+        "sectors":      fetch_sector_performance(),
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/intraday/{ticker}")
+def get_intraday(ticker: str, interval: str = "4hour", days: int = 60):
+    """Intraday koersdata ophalen voor een aandeel (standaard 4-uurs, laatste 60 dagen)."""
+    ticker = ticker.upper()
+    from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date   = datetime.now().strftime("%Y-%m-%d")
+
+    data = _fmp_get(
+        f"/historical-chart/{interval}/{ticker}",
+        {"from": from_date, "to": to_date}
+    )
+
+    if not data or isinstance(data, str) or not isinstance(data, list):
+        return {"ticker": ticker, "interval": interval, "data": [], "error": "Geen intraday data beschikbaar"}
+
+    # FMP geeft nieuwste eerst → omkeren naar oudste eerst
+    data_asc = list(reversed(data))
+    return {
+        "ticker":   ticker,
+        "interval": interval,
+        "data": [
+            {
+                "date":   item.get("date", ""),
+                "open":   item.get("open"),
+                "high":   item.get("high"),
+                "low":    item.get("low"),
+                "close":  item.get("close"),
+                "volume": item.get("volume"),
+            }
+            for item in data_asc
+        ],
     }
 
 
@@ -905,7 +1141,7 @@ def update_config(config: ConfigUpdate):
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"\n🚀 ETF Score Engine — {datetime.now().strftime('%d-%m-%Y %H:%M')}")
+    print(f"\n🚀 ETF Score Engine v2.0 (Premium) — {datetime.now().strftime('%d-%m-%Y %H:%M')}")
     print(f"   Analyseren: {len(ETF_HOLDINGS)} aandelen\n")
     results = []
     for h in ETF_HOLDINGS:

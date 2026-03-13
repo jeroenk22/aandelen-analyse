@@ -24,7 +24,7 @@ const makeLiveResponse = (cached = false, cacheAgeMinutes = 0) => ({
   cached,
   cache_age_minutes: cacheAgeMinutes,
   config: {
-    timeframe_weights: { daily: 0.30, weekly: 0.40, monthly: 0.30 },
+    timeframe_weights: { intraday: 0.15, daily: 0.25, weekly: 0.35, monthly: 0.25 },
     indicator_weights: {
       rsi: 0.13, ma20: 0.08, ma200: 0.07, forward_pe: 0.15,
       peg: 0.15, price_fcf: 0.11, momentum: 0.08,
@@ -64,7 +64,7 @@ function makeHolding(overrides = {}) {
     total_score: 72.3,
     signal: 'KOOP',
     etf_weight: 0.0454,
-    scores_by_timeframe: { daily: 74.1, weekly: 71.8, monthly: 70.9 },
+    scores_by_timeframe: { intraday: 73.2, daily: 74.1, weekly: 71.8, monthly: 70.9 },
     indicator_scores: {
       rsi_daily: 42, rsi_weekly: 38, rsi_monthly: 45,
       rsi_divergence_daily: 50, rsi_divergence_weekly: 50, rsi_divergence_monthly: 50,
@@ -235,9 +235,11 @@ async function renderAndOpenDetail(fetchImpl) {
 describe('Detail tab — koersgrafiek tijdframe-knoppen', () => {
   it('toont alle tijdframe-knoppen na openen detail tab', async () => {
     await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
-    for (const label of ['1M', '3M', '6M', '1J', '3J', '5J']) {
+    for (const label of ['1M', '3M', '6M', '1J', '3J', '5J', '10J', '30J']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
+    // 4U knop voor intraday
+    expect(screen.getByRole('button', { name: '4U' })).toBeInTheDocument();
   });
 
   it('heeft 1J als actieve knop standaard', async () => {
