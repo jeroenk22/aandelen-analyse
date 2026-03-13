@@ -70,7 +70,7 @@ function TimeframeScores({ scores }) {
     ["Maandelijks", "monthly"],
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+    <div className="timeframe-grid">
       {timeframes.map(([label, key]) => {
         const val = scores?.[key];
         const isIntraday = key === "intraday";
@@ -113,7 +113,7 @@ function RawDataCard({ holding }) {
   return (
     <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
       <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 12 }}>RAW DATA</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+      <div className="raw-data-grid">
         {metrics.map(([label, val, color]) => (
           <div key={label} style={{ background: "#060C18", borderRadius: 6, padding: "8px 12px" }}>
             <div style={{ fontSize: 10, color: "#475569", marginBottom: 2, fontFamily: "'DM Mono'" }}>{label}</div>
@@ -183,7 +183,7 @@ function IndicatorScores({ holding, isHistoricalMode }) {
                   </span>
                 </IndicatorTooltip>
                 {desc && (
-                  <div style={{ fontSize: 9.5, color: "#475569", marginTop: 2, marginLeft: 11, fontStyle: "italic", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div className="indicator-desc" style={{ fontSize: 9.5, color: "#475569", marginTop: 2, marginLeft: 11, fontStyle: "italic", lineHeight: 1.4 }}>
                     {desc}
                   </div>
                 )}

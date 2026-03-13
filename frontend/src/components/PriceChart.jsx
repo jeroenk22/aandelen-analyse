@@ -110,7 +110,7 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
         </div>
 
         {/* Knoppen-rij */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="chart-btns" style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
           {/* Intraday toggle (alleen in live modus) */}
           {!isHistoricalMode && (
             <>
