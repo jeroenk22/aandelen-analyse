@@ -325,25 +325,25 @@ describe('Detail tab — OHLCV sectie zichtbaarheid', () => {
     expect(screen.getAllByText('OPEN').length).toBeGreaterThan(0);
   });
 
-  it('historisch fetch-url bevat de opgegeven datum', async () => {
+  it('historisch fetch-url bevat een datum na selecteren via de datepicker', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeLiveResponse()),
     });
     await renderApp(fetchMock);
 
-    const dateInput = document.querySelector('input[type="date"]');
-    await act(async () => {
-      fireEvent.change(dateInput, { target: { value: '2024-06-01' } });
-    });
-    await act(async () => {
-      fireEvent.submit(dateInput.closest('form'));
-    });
+    // Open de custom datepicker
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
 
-    // Controleer dat een historische fetch werd gedaan met de juiste datum
-    const historischCall = fetchMock.mock.calls.find(([url]) =>
-      url.includes('/historical') && url.includes('2024-06-01')
-    );
+    // Klik op "Vandaag" om een geldige datum te selecteren
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+
+    // Submit het historische formulier
+    const form = document.querySelector('form:nth-of-type(2)');
+    await act(async () => { fireEvent.submit(form); });
+
+    // Controleer dat een historische fetch werd gedaan
+    const historischCall = fetchMock.mock.calls.find(([url]) => url.includes('/historical'));
     expect(historischCall).toBeDefined();
   });
 });

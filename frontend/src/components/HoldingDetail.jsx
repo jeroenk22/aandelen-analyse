@@ -126,7 +126,7 @@ function RawDataCard({ holding }) {
 }
 
 // Indicator scores lijst met voortgangsbalkjes en tooltips
-function IndicatorScores({ holding }) {
+function IndicatorScores({ holding, isHistoricalMode }) {
   const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "dcf_discount"]);
 
   return (
@@ -138,18 +138,27 @@ function IndicatorScores({ holding }) {
         const desc       = interp?.label;
         const tooltip    = interp?.tooltip;
         const dotColor   = signalDotColor(interp?.signal);
-        const unavailable = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
+        // Fundamentals ontbreken in historische modus (altijd) of voor niet-US aandelen (forward_pe null)
+        const noFundamentalsHistorical = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
+        const noFundamentalsNonUS      = !isHistoricalMode && FUNDAMENTALS.has(key) && holding.raw_data?.forward_pe == null;
+        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS;
 
         if (unavailable) {
+          const reason = isHistoricalMode
+            ? "Niet beschikbaar in historische modus"
+            : "Geen fundamentals data (niet-US)";
           return (
             <div key={key} style={{ marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
-                <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
-                  {indLabel}
-                </span>
+                <IndicatorTooltip tooltip={tooltip}>
+                  <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5, cursor: tooltip ? "help" : "default" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
+                    {indLabel}
+                    {tooltip && <span style={{ fontSize: 9, color: "#475569" }}>ⓘ</span>}
+                  </span>
+                </IndicatorTooltip>
                 <span style={{ fontSize: 10, color: "#92400E", fontStyle: "italic", flexShrink: 0, background: "#451A0320", padding: "2px 8px", borderRadius: 4, border: "1px solid #92400E44" }}>
-                  Niet beschikbaar in Starter pakket
+                  {reason}
                 </span>
               </div>
               <div style={{ height: 5, borderRadius: 3, background: "#1E2D45" }} />
@@ -246,7 +255,7 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
         </div>
 
         {/* Rechter kolom: indicator scores */}
-        <IndicatorScores holding={holding} />
+        <IndicatorScores holding={holding} isHistoricalMode={isHistoricalMode} />
       </div>
     </div>
   );

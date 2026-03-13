@@ -1,4 +1,157 @@
+import { useState, useRef, useEffect } from "react";
 import IndicatorTooltip from "./IndicatorTooltip";
+
+// ─── Custom datepicker in dashboard-stijl ────────────────────────────────────
+function DatePicker({ value, onChange, min, max }) {
+  const [open, setOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(() => (value ? new Date(value + "T00:00:00") : new Date()).getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => (value ? new Date(value + "T00:00:00") : new Date()).getMonth());
+  const ref = useRef();
+
+  const selected  = value ? new Date(value + "T00:00:00") : null;
+  const minDate   = min   ? new Date(min   + "T00:00:00") : null;
+  const maxDate   = max   ? new Date(max   + "T00:00:00") : null;
+
+  // Sluit bij klik buiten component
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Navigatie helpers
+  const prevMonth = () => viewMonth === 0  ? (setViewMonth(11), setViewYear(y => y - 1)) : setViewMonth(m => m - 1);
+  const nextMonth = () => viewMonth === 11 ? (setViewMonth(0),  setViewYear(y => y + 1)) : setViewMonth(m => m + 1);
+  const prevYear  = () => setViewYear(y => y - 1);
+  const nextYear  = () => setViewYear(y => y + 1);
+
+  const isDisabled = (day) => {
+    const d = new Date(viewYear, viewMonth, day);
+    return (minDate && d < minDate) || (maxDate && d > maxDate);
+  };
+  const isSelected = (day) => selected &&
+    selected.getFullYear() === viewYear && selected.getMonth() === viewMonth && selected.getDate() === day;
+  const isToday = (day) => {
+    const t = new Date();
+    return t.getFullYear() === viewYear && t.getMonth() === viewMonth && t.getDate() === day;
+  };
+
+  const selectDay = (day) => {
+    if (isDisabled(day)) return;
+    const str = new Date(viewYear, viewMonth, day).toISOString().split("T")[0];
+    onChange(str);
+    setOpen(false);
+  };
+
+  const goToday = () => {
+    const str = new Date().toISOString().split("T")[0];
+    onChange(str);
+    setOpen(false);
+  };
+
+  const clearDate = () => { onChange(""); setOpen(false); };
+
+  // Celgrid bouwen (ma=0 … zo=6)
+  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
+
+  const MONTHS = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+  const DAYS   = ["MA","DI","WO","DO","VR","ZA","ZO"];
+
+  const displayVal = selected
+    ? `${String(selected.getDate()).padStart(2,"0")}-${String(selected.getMonth()+1).padStart(2,"0")}-${selected.getFullYear()}`
+    : "dd-mm-jjjj";
+
+  const btnNav = { background: "none", border: "none", cursor: "pointer", color: "#475569",
+    fontSize: 13, padding: "0 5px", lineHeight: 1 };
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "flex", alignItems: "stretch", flex: 1 }}>
+      {/* Tekstveld */}
+      <div
+        data-testid="date-picker-trigger"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          padding: "7px 10px", flex: 1, cursor: "pointer", userSelect: "none",
+          color: selected ? "#FCD34D" : "#475569",
+          fontSize: 12, fontFamily: "'DM Mono'", display: "flex", alignItems: "center",
+        }}
+      >
+        {displayVal}
+      </div>
+
+      {/* Kalender dropdown */}
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 1000,
+          background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 10,
+          padding: "12px 10px", width: 216,
+          boxShadow: "0 8px 32px #000C",
+        }}>
+          {/* Navigatiebalk */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 0 }}>
+              <button type="button" style={btnNav} onClick={prevYear}  title="Vorig jaar">«</button>
+              <button type="button" style={btnNav} onClick={prevMonth} title="Vorige maand">‹</button>
+            </div>
+            <span style={{ fontSize: 12, fontFamily: "'DM Mono'", color: "#93C5FD", fontWeight: 600, letterSpacing: "0.04em" }}>
+              {MONTHS[viewMonth].toUpperCase()} {viewYear}
+            </span>
+            <div style={{ display: "flex", gap: 0 }}>
+              <button type="button" style={btnNav} onClick={nextMonth} title="Volgende maand">›</button>
+              <button type="button" style={btnNav} onClick={nextYear}  title="Volgend jaar">»</button>
+            </div>
+          </div>
+
+          {/* Dag-header */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 3 }}>
+            {DAYS.map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 9, color: "#334155",
+                fontFamily: "'DM Mono'", fontWeight: 700, padding: "2px 0" }}>{d}</div>
+            ))}
+          </div>
+
+          {/* Dagcellen */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} />;
+              const disabled = isDisabled(day);
+              const sel      = isSelected(day);
+              const today    = isToday(day);
+              return (
+                <div key={i} onClick={() => selectDay(day)} style={{
+                  textAlign: "center", fontSize: 11, fontFamily: "'DM Mono'",
+                  padding: "4px 1px", borderRadius: 5,
+                  cursor: disabled ? "default" : "pointer",
+                  color:      disabled ? "#1E3A5F" : sel ? "#0D1321" : today ? "#F59E0B" : "#94A3B8",
+                  background: sel ? "#F59E0B" : today && !sel ? "#F59E0B14" : "transparent",
+                  border:     today && !sel ? "1px solid #F59E0B44" : "1px solid transparent",
+                  fontWeight: sel ? 700 : 400,
+                  transition: "background 0.1s",
+                }}
+                  onMouseEnter={e => { if (!disabled && !sel) e.currentTarget.style.background = "#1E2D45"; }}
+                  onMouseLeave={e => { if (!disabled && !sel) e.currentTarget.style.background = today ? "#F59E0B14" : "transparent"; }}
+                >{day}</div>
+              );
+            })}
+          </div>
+
+          {/* Footer */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10,
+            paddingTop: 8, borderTop: "1px solid #1E2D45" }}>
+            <button type="button" onClick={clearDate}
+              style={{ background: "none", border: "none", color: "#475569", cursor: "pointer",
+                fontSize: 11, fontFamily: "'DM Mono'" }}>Wissen</button>
+            <button type="button" onClick={goToday}
+              style={{ background: "none", border: "none", color: "#F59E0B", cursor: "pointer",
+                fontSize: 11, fontFamily: "'DM Mono'", fontWeight: 600 }}>Vandaag</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Props:
 //   useMock, isHistoricalMode, historicalDate, data, activeTickers
@@ -61,27 +214,43 @@ export default function AppHeader({
 
       {/* Historische datum picker */}
       <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
-        <input
-          type="date"
-          value={historicalDateInput}
-          onChange={e => setHistoricalDateInput(e.target.value)}
-          max={new Date().toISOString().split("T")[0]}
-          className="header-date-input"
+        <div style={{
+          display: "flex", alignItems: "stretch",
+          border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#1E3A5F"}`,
+          borderRadius: 6, background: "#060C18",
+          boxShadow: isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none",
+          transition: "box-shadow 0.2s, border-color 0.2s",
+          position: "relative",
+        }}>
+          <span style={{
+            padding: "0 9px", display: "flex", alignItems: "center",
+            fontSize: 11, color: isHistoricalMode ? "#F59E0B" : "#475569",
+            fontFamily: "'DM Mono'", fontWeight: 600,
+            borderRight: `1px solid ${isHistoricalMode ? "#F59E0B44" : "#1E2D45"}`,
+            background: isHistoricalMode ? "#F59E0B0D" : "transparent",
+            borderRadius: "5px 0 0 5px",
+            userSelect: "none", letterSpacing: "0.04em",
+          }}>🕐</span>
+          <DatePicker
+            value={historicalDateInput}
+            onChange={setHistoricalDateInput}
+            min={new Date(Date.now() - 30 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+            max={new Date().toISOString().split("T")[0]}
+          />
+        </div>
+        <button type="submit" className="hov header-btn"
           style={{
-            padding: "7px 10px", borderRadius: 6, background: "#060C18",
-            border: `1px solid ${isHistoricalMode ? "#F59E0B" : "#1E3A5F"}`,
-            color: "#E2E8F0", fontSize: 12, fontFamily: "'DM Mono'", outline: "none",
-            colorScheme: "dark",
-          }}
-        />
-        <button type="submit" className="header-btn"
-          style={{ padding: "7px 12px", borderRadius: 6, background: "#2D1F00", border: "1px solid #F59E0B", color: "#F59E0B", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
-          🕐 Historisch
+            padding: "7px 12px", borderRadius: 6, cursor: "pointer",
+            background: isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
+            border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
+            color: "#F59E0B", fontSize: 12, fontWeight: 600,
+          }}>
+          {isHistoricalMode ? "Actief" : "Historisch"}
         </button>
         {isHistoricalMode && (
-          <button type="button" onClick={onClearHistorical}
+          <button type="button" className="hov" onClick={onClearHistorical}
             style={{ padding: "7px 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer" }}>
-            ✕ Live
+            ✕
           </button>
         )}
       </form>
