@@ -640,6 +640,10 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "dcf_fair_value":       _r(dcf_fv, 2),
             "fundamentals_unavailable": historical_mode,
             "ohlc_day":             ohlc_day,
+            "price_history": [
+                {"date": str(idx.date()), "close": round(float(val), 2)}
+                for idx, val in hist["Close"].items()
+            ],
         }
     except Exception as e:
         print(f"  ⚠ Fout bij {ticker}: {e}")
