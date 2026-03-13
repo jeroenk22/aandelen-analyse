@@ -12,7 +12,7 @@
  *   - Detail tab: historische vs. live label
  */
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
 import App from '../App';
 
@@ -24,7 +24,7 @@ const makeLiveResponse = (cached = false, cacheAgeMinutes = 0) => ({
   cached,
   cache_age_minutes: cacheAgeMinutes,
   config: {
-    timeframe_weights: { intraday: 0.15, daily: 0.25, weekly: 0.35, monthly: 0.25 },
+    timeframe_weights: { daily: 0.30, weekly: 0.40, monthly: 0.30 },
     indicator_weights: {
       rsi: 0.13, ma20: 0.08, ma200: 0.07, forward_pe: 0.15,
       peg: 0.15, price_fcf: 0.11, momentum: 0.08,
@@ -64,7 +64,7 @@ function makeHolding(overrides = {}) {
     total_score: 72.3,
     signal: 'KOOP',
     etf_weight: 0.0454,
-    scores_by_timeframe: { intraday: 73.2, daily: 74.1, weekly: 71.8, monthly: 70.9 },
+    scores_by_timeframe: { daily: 74.1, weekly: 71.8, monthly: 70.9 },
     indicator_scores: {
       rsi_daily: 42, rsi_weekly: 38, rsi_monthly: 45,
       rsi_divergence_daily: 50, rsi_divergence_weekly: 50, rsi_divergence_monthly: 50,
@@ -223,10 +223,9 @@ describe('Header status tekst', () => {
 
 async function renderAndOpenDetail(fetchImpl) {
   await renderApp(fetchImpl);
-  // Klik op de NVDA rij → navigeert naar detail tab
-  // getAllByText omdat NVDA ook in de mobiele kaartweergave staat (zelfde DOM, CSS verbergt het)
+  // Klik op de NVDA tabelrij → navigeert naar detail tab
   await act(async () => {
-    fireEvent.click(screen.getAllByText('NVDA')[0]);
+    fireEvent.click(screen.getByRole('row', { name: /NVDA/ }));
   });
 }
 
@@ -235,11 +234,9 @@ async function renderAndOpenDetail(fetchImpl) {
 describe('Detail tab — koersgrafiek tijdframe-knoppen', () => {
   it('toont alle tijdframe-knoppen na openen detail tab', async () => {
     await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
-    for (const label of ['1M', '3M', '6M', '1J', '3J', '5J', '10J', '30J']) {
+    for (const label of ['1M', '3M', '6M', '1J', '3J', '5J']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
-    // 4U knop voor intraday
-    expect(screen.getByRole('button', { name: '4U' })).toBeInTheDocument();
   });
 
   it('heeft 1J als actieve knop standaard', async () => {
@@ -296,9 +293,10 @@ describe('Detail tab — OHLCV tabel', () => {
 
   it('toont de close koers in de OHLCV tabel-cel', async () => {
     await renderAndOpenDetail(mockFetch(makeLiveResponseWithHolding()));
-    // $875.40 staat in prijs-header, desktop-tabel (<td>) én mobiel raster (<div>)
+    // $875.40 staat ook in de prijs-header; zoek specifiek de <td>
     const cells = screen.getAllByText('$875.40');
-    expect(cells.length).toBeGreaterThan(0);
+    const tableCell = cells.find(el => el.tagName === 'TD');
+    expect(tableCell).toBeInTheDocument();
   });
 
   it('toont volume als getal', async () => {
@@ -325,25 +323,23 @@ describe('Detail tab — OHLCV sectie zichtbaarheid', () => {
     expect(screen.getAllByText('OPEN').length).toBeGreaterThan(0);
   });
 
-  it('historisch fetch-url bevat een datum na selecteren via de datepicker', async () => {
+  it('historisch fetch-url bevat de opgegeven datum', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(makeLiveResponse()),
     });
     await renderApp(fetchMock);
 
-    // Open de custom datepicker
+    // Open de custom datepicker en selecteer vandaag
     await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
-
-    // Klik op "Vandaag" om een geldige datum te selecteren
     await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
-
     // Submit het historische formulier
-    const form = document.querySelector('form:nth-of-type(2)');
-    await act(async () => { fireEvent.submit(form); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Historisch' })); });
 
-    // Controleer dat een historische fetch werd gedaan
-    const historischCall = fetchMock.mock.calls.find(([url]) => url.includes('/historical'));
+    // Controleer dat een historische fetch werd gedaan met een datum in YYYY-MM-DD formaat
+    const historischCall = fetchMock.mock.calls.find(([url]) =>
+      url.includes('/historical') && /date=\d{4}-\d{2}-\d{2}/.test(url)
+    );
     expect(historischCall).toBeDefined();
   });
 });
