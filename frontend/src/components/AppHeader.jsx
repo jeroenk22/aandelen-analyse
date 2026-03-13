@@ -12,7 +12,7 @@ export default function AppHeader({
   useCache, setUseCache, loading, onRefresh,
 }) {
   return (
-    <div style={{ background: "#0D1321", borderBottom: "1px solid #1E2D45", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+    <div className="header-wrapper" style={{ background: "#0D1321", borderBottom: "1px solid #1E2D45" }}>
 
       {/* Logo & status */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -34,19 +34,20 @@ export default function AppHeader({
       </div>
 
       {/* Ticker invoer */}
-      <form onSubmit={e => { e.preventDefault(); onAnalyzeTickers(); }} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <form onSubmit={e => { e.preventDefault(); onAnalyzeTickers(); }} className="header-form">
         <input
           type="text"
           value={tickerInput}
           onChange={e => setTickerInput(e.target.value)}
           placeholder="Tickers (bijv. AAPL, MSFT, NVDA)"
+          className="header-ticker-input"
           style={{
             padding: "7px 12px", borderRadius: 6, background: "#060C18",
             border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
-            fontFamily: "'DM Mono'", width: 260, outline: "none",
+            fontFamily: "'DM Mono'", outline: "none",
           }}
         />
-        <button type="submit" className="hov"
+        <button type="submit" className="hov header-btn"
           style={{ padding: "7px 12px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
           Analyseer
         </button>
@@ -59,12 +60,13 @@ export default function AppHeader({
       </form>
 
       {/* Historische datum picker */}
-      <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
         <input
           type="date"
           value={historicalDateInput}
           onChange={e => setHistoricalDateInput(e.target.value)}
           max={new Date().toISOString().split("T")[0]}
+          className="header-date-input"
           style={{
             padding: "7px 10px", borderRadius: 6, background: "#060C18",
             border: `1px solid ${isHistoricalMode ? "#F59E0B" : "#1E3A5F"}`,
@@ -72,7 +74,7 @@ export default function AppHeader({
             colorScheme: "dark",
           }}
         />
-        <button type="submit"
+        <button type="submit" className="header-btn"
           style={{ padding: "7px 12px", borderRadius: 6, background: "#2D1F00", border: "1px solid #F59E0B", color: "#F59E0B", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
           🕐 Historisch
         </button>
@@ -85,7 +87,7 @@ export default function AppHeader({
       </form>
 
       {/* Cache-toggle & vernieuwen */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="header-cache-row">
         <IndicatorTooltip tooltip="Als cache aan staat, wordt opgeslagen data gebruikt (max 60 min oud) zodat het dashboard razendsnel laadt. Zet uit om altijd verse data op te halen — dit duurt ~30 seconden." direction="down">
           <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: useCache ? "#93C5FD" : "#475569", userSelect: "none" }}>
             <input type="checkbox" checked={useCache} disabled={isHistoricalMode}
@@ -94,7 +96,7 @@ export default function AppHeader({
             ⚡ Cache
           </label>
         </IndicatorTooltip>
-        <button className="hov" onClick={onRefresh}
+        <button className="hov header-btn" onClick={onRefresh}
           style={{ padding: "7px 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500 }}>
           {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
         </button>

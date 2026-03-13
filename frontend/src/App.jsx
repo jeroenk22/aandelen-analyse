@@ -124,6 +124,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { overflow-x: hidden; max-width: 100vw; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: #0A0F1A; }
         ::-webkit-scrollbar-thumb { background: #1E3A5F; border-radius: 2px; }
@@ -134,6 +135,33 @@ export default function App() {
         .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #3B82F6; cursor: pointer; }
         .badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; font-family: 'DM Mono', monospace; }
         tr.hov { transition: background 0.1s; }
+        .top-grid { display: grid; grid-template-columns: 270px 1fr; gap: 16px; margin-bottom: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .desktop-table { display: block; }
+        .mobile-cards { display: none; }
+        .header-wrapper { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 24px; }
+        .header-form { display: flex; align-items: center; gap: 6px; }
+        .header-ticker-input { width: 260px; }
+        .header-date-input { flex: 0 0 auto; }
+        .header-cache-row { display: flex; align-items: center; gap: 10px; }
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .ohlc-desktop { display: block; }
+        .ohlc-mobile { display: none; }
+        @media (max-width: 768px) {
+          .top-grid { grid-template-columns: 1fr; }
+          .stats-grid { grid-template-columns: repeat(2, 1fr); }
+          .desktop-table { display: none; }
+          .mobile-cards { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+          .header-wrapper { flex-direction: column; align-items: stretch; padding: 12px 14px; gap: 8px; }
+          .header-form { width: 100%; }
+          .header-ticker-input { flex: 1; width: auto; min-width: 0; }
+          .header-date-input { flex: 1; min-width: 0; }
+          .header-cache-row { justify-content: space-between; }
+          .header-btn { min-width: 120px; text-align: center; flex-shrink: 0; }
+          .detail-grid { grid-template-columns: 1fr; }
+          .ohlc-desktop { display: none; }
+          .ohlc-mobile { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
+        }
       `}</style>
 
       <AppHeader
@@ -159,7 +187,7 @@ export default function App() {
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "20px" }}>
 
         {/* Score gauge + statistieken */}
-        <div style={{ display: "grid", gridTemplateColumns: "270px 1fr", gap: 16, marginBottom: 20 }}>
+        <div className="top-grid">
           <ScoreGauge
             score={liveScore}
             signal={liveSignal}
