@@ -69,9 +69,9 @@ export default function StatsPanel({ holdings }) {
       {/* 60-daagse koersprestatie (genormaliseerd op 100) */}
       <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 10, padding: "14px 16px", flex: 1 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <span style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'", letterSpacing: "0.08em" }}>
-              60-DAAGSE KOERSPRESTATIE (GENORMALISEERD = 100)
+          <div className="chart-title-row" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'", letterSpacing: "0.08em", minWidth: 0 }}>
+              60-DAAGSE KOERSPRESTATIE<span className="chart-title-suffix"> (GENORMALISEERD = 100)</span>
             </span>
             <IndicatorTooltip
               tooltip="Elke lijn start op 100 op dag 1. Een waarde van 110 betekent +10% ten opzichte van het startpunt 60 handelsdagen geleden. Dit maakt aandelen met verschillende koersen onderling vergelijkbaar."
@@ -80,7 +80,7 @@ export default function StatsPanel({ holdings }) {
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: "1px solid #334155", color: "#475569", fontSize: 9, fontFamily: "'DM Mono'", cursor: "pointer", flexShrink: 0 }}>?</span>
             </IndicatorTooltip>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+          <div className="chart-legend" style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
             {geldigeHoldings.map((h, i) => (
               <div key={h.ticker} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 16, height: 2, background: LIJN_KLEUREN[i % LIJN_KLEUREN.length], display: "inline-block", borderRadius: 1 }} />

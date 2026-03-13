@@ -161,6 +161,11 @@ export default function App() {
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .ohlc-desktop { display: block; }
         .ohlc-mobile { display: none; }
+        .raw-data-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .timeframe-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .indicator-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .chart-title-suffix { display: inline; }
+        .chart-legend { margin-left: auto; }
         @media (max-width: 768px) {
           .top-grid { grid-template-columns: 1fr; }
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -177,6 +182,12 @@ export default function App() {
           .detail-grid { grid-template-columns: 1fr; }
           .ohlc-desktop { display: none; }
           .ohlc-mobile { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
+          .raw-data-grid { grid-template-columns: repeat(2, 1fr); }
+          .timeframe-grid { grid-template-columns: repeat(2, 1fr); }
+          .indicator-desc { white-space: normal; overflow: visible; text-overflow: clip; }
+          .chart-title-suffix { display: block; }
+          .chart-title-row { justify-content: space-between; width: 100%; }
+          .chart-btns button { padding: 3px 7px !important; font-size: 10px !important; }
         }
       `}</style>
 
