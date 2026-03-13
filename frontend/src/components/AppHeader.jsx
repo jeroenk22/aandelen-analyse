@@ -197,14 +197,14 @@ export default function AppHeader({
           style={{
             padding: "0 12px", borderRadius: 6, background: "#060C18",
             border: "1px solid #1E3A5F", color: "#E2E8F0", fontSize: 12,
-            fontFamily: "'DM Mono'", outline: "none",
+            fontFamily: "'DM Mono'", outline: "none", minWidth: 0,
           }}
         />
         <button type="submit" className="hov header-btn"
           style={{ padding: "0 14px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
           Analyseer
         </button>
-        <button type="button" className="hov header-btn" onClick={onClearTickers}
+        <button type="button" className={`hov header-btn${activeTickers ? "" : " header-btn-ghost"}`} onClick={onClearTickers}
           style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: activeTickers ? "visible" : "hidden" }}>
           ✕
         </button>
@@ -213,7 +213,7 @@ export default function AppHeader({
       {/* Historische datum picker */}
       <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
         <div style={{
-          display: "flex", alignItems: "stretch", height: 34, boxSizing: "border-box",
+          display: "flex", alignItems: "stretch", height: 34, boxSizing: "border-box", flex: 1,
           border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#1E3A5F"}`,
           borderRadius: 6, background: "#060C18",
           boxShadow: isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none",
@@ -245,7 +245,7 @@ export default function AppHeader({
           }}>
           {isHistoricalMode ? "Actief" : "Historisch"}
         </button>
-        <button type="button" className="hov header-btn" onClick={onClearHistorical}
+        <button type="button" className={`hov header-btn${isHistoricalMode ? "" : " header-btn-ghost"}`} onClick={onClearHistorical}
           style={{ padding: "0 10px", borderRadius: 6, background: "transparent", border: "1px solid #1E2D45", color: "#475569", fontSize: 12, cursor: "pointer", visibility: isHistoricalMode ? "visible" : "hidden" }}>
           ✕
         </button>

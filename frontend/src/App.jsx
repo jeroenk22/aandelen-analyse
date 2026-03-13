@@ -158,8 +158,9 @@ export default function App() {
           .header-form { width: 100%; }
           .header-ticker-input { flex: 1; width: auto; min-width: 0; }
           .header-date-input { flex: 1; min-width: 0; }
-          .header-cache-row { justify-content: space-between; }
-          .header-btn { min-width: 120px; text-align: center; flex-shrink: 0; }
+          .header-cache-row { justify-content: space-between; margin-left: 0; }
+          .header-btn { min-width: 0; flex-shrink: 0; }
+          .header-btn-ghost { display: none; }
           .detail-grid { grid-template-columns: 1fr; }
           .ohlc-desktop { display: none; }
           .ohlc-mobile { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
