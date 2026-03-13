@@ -76,7 +76,8 @@ export default function App() {
     const tw = valid.reduce((s, h) => s + h.etf_weight, 0);
     if (tw === 0) return 0;
     return Math.round(valid.reduce((acc, h) => {
-      const s = weights.daily   * h.scores_by_timeframe.daily +
+      const s = (weights.intraday ?? 0) * (h.scores_by_timeframe.intraday ?? 50) +
+                weights.daily   * h.scores_by_timeframe.daily +
                 weights.weekly  * h.scores_by_timeframe.weekly +
                 weights.monthly * h.scores_by_timeframe.monthly;
       return acc + s * (h.etf_weight / tw);

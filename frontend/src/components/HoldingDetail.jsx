@@ -61,16 +61,36 @@ function OhlcTable({ ohlc, currency, isHistoricalMode }) {
   );
 }
 
-// Timeframe score kaartjes (dag/week/maand)
+// Timeframe score kaartjes (intraday/dag/week/maand)
 function TimeframeScores({ scores }) {
+  const timeframes = [
+    ["4-Uurs", "intraday"],
+    ["Dagelijks", "daily"],
+    ["Wekelijks", "weekly"],
+    ["Maandelijks", "monthly"],
+  ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-      {[["Dagelijks","daily"],["Wekelijks","weekly"],["Maandelijks","monthly"]].map(([label, key]) => (
-        <div key={key} style={{ background: "#060C18", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 4 }}>{label.toUpperCase()}</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: scoreColor(scores?.[key]), fontFamily: "'DM Mono'" }}>{scores?.[key] ?? "—"}</div>
-        </div>
-      ))}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+      {timeframes.map(([label, key]) => {
+        const val = scores?.[key];
+        const isIntraday = key === "intraday";
+        return (
+          <div key={key} style={{
+            background: "#060C18", borderRadius: 8, padding: "10px 8px", textAlign: "center",
+            border: isIntraday ? "1px solid #8B5CF644" : "none",
+          }}>
+            <div style={{ fontSize: 9, color: isIntraday ? "#8B5CF6" : "#475569", fontFamily: "'DM Mono'", marginBottom: 4, letterSpacing: "0.04em" }}>
+              {label.toUpperCase()}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: val != null ? scoreColor(val) : "#334155", fontFamily: "'DM Mono'" }}>
+              {val ?? "—"}
+            </div>
+            {isIntraday && val == null && (
+              <div style={{ fontSize: 8, color: "#475569", marginTop: 2 }}>geen data</div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -78,11 +98,14 @@ function TimeframeScores({ scores }) {
 // Raw data kaart met 6 metrics
 function RawDataCard({ holding }) {
   const rd = holding.raw_data || {};
+  const sectorRet = rd.sector_return;
   const metrics = [
     ["RSI (dag)",    rd.rsi_daily?.toFixed(1),    rd.rsi_daily < 30 ? "#22C55E" : rd.rsi_daily > 70 ? "#EF4444" : "#94A3B8"],
+    ["RSI (4u)",     rd.rsi_intraday?.toFixed(1), rd.rsi_intraday < 30 ? "#22C55E" : rd.rsi_intraday > 70 ? "#EF4444" : "#94A3B8"],
     ["PEG Ratio",    rd.peg_ratio?.toFixed(2),    rd.peg_ratio < 1 ? "#22C55E" : rd.peg_ratio > 2 ? "#EF4444" : "#94A3B8"],
     ["Forward P/E",  rd.forward_pe?.toFixed(1),   "#94A3B8"],
     ["Momentum 1m",  rd.momentum_1m != null ? `${rd.momentum_1m > 0 ? "+" : ""}${rd.momentum_1m.toFixed(1)}%` : "—", rd.momentum_1m > 0 ? "#22C55E" : "#EF4444"],
+    ["Sector perf.", sectorRet != null ? `${sectorRet > 0 ? "+" : ""}${sectorRet.toFixed(2)}%` : "—", sectorRet > 0 ? "#22C55E" : sectorRet < 0 ? "#EF4444" : "#94A3B8"],
     ["MA200",        fmt(rd.ma200, holding.currency), "#94A3B8"],
     ["ETF Weging",   `${(holding.etf_weight * 100).toFixed(2)}%`, "#60A5FA"],
   ];
@@ -90,7 +113,7 @@ function RawDataCard({ holding }) {
   return (
     <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
       <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 12 }}>RAW DATA</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
         {metrics.map(([label, val, color]) => (
           <div key={label} style={{ background: "#060C18", borderRadius: 6, padding: "8px 12px" }}>
             <div style={{ fontSize: 10, color: "#475569", marginBottom: 2, fontFamily: "'DM Mono'" }}>{label}</div>
@@ -103,7 +126,7 @@ function RawDataCard({ holding }) {
 }
 
 // Indicator scores lijst met voortgangsbalkjes en tooltips
-function IndicatorScores({ holding }) {
+function IndicatorScores({ holding, isHistoricalMode }) {
   const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "dcf_discount"]);
 
   return (
@@ -115,18 +138,27 @@ function IndicatorScores({ holding }) {
         const desc       = interp?.label;
         const tooltip    = interp?.tooltip;
         const dotColor   = signalDotColor(interp?.signal);
-        const unavailable = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
+        // Fundamentals ontbreken in historische modus (altijd) of voor niet-US aandelen (forward_pe null)
+        const noFundamentalsHistorical = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
+        const noFundamentalsNonUS      = !isHistoricalMode && FUNDAMENTALS.has(key) && holding.raw_data?.forward_pe == null;
+        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS;
 
         if (unavailable) {
+          const reason = isHistoricalMode
+            ? "Niet beschikbaar in historische modus"
+            : "Geen fundamentals data (niet-US)";
           return (
             <div key={key} style={{ marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
-                <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
-                  {indLabel}
-                </span>
+                <IndicatorTooltip tooltip={tooltip}>
+                  <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5, cursor: tooltip ? "help" : "default" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
+                    {indLabel}
+                    {tooltip && <span style={{ fontSize: 9, color: "#475569" }}>ⓘ</span>}
+                  </span>
+                </IndicatorTooltip>
                 <span style={{ fontSize: 10, color: "#92400E", fontStyle: "italic", flexShrink: 0, background: "#451A0320", padding: "2px 8px", borderRadius: 4, border: "1px solid #92400E44" }}>
-                  Niet beschikbaar in Starter pakket
+                  {reason}
                 </span>
               </div>
               <div style={{ height: 5, borderRadius: 3, background: "#1E2D45" }} />
@@ -195,6 +227,7 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
           name={holding.name}
           currency={holding.currency}
           priceHistory={holding.raw_data.price_history}
+          isHistoricalMode={isHistoricalMode}
         />
       )}
 
@@ -223,7 +256,7 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
         </div>
 
         {/* Rechter kolom: indicator scores */}
-        <IndicatorScores holding={holding} />
+        <IndicatorScores holding={holding} isHistoricalMode={isHistoricalMode} />
       </div>
     </div>
   );

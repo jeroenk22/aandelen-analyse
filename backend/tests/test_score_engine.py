@@ -5,6 +5,9 @@ Dekt:
   - Score-functies (unit tests)
   - Cache-logica van /etf endpoint
   - API endpoints via FastAPI TestClient
+  - Historische modus
+  - Intraday timeframe
+  - Sector performance
 """
 
 import sys
@@ -15,7 +18,6 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-# Voeg backend-map toe aan path zodat import werkt
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import etf_score_engine as engine
 from etf_score_engine import app
@@ -34,24 +36,37 @@ def mock_stock_data(ticker="TEST"):
         "sector": "Technology",
         "current_price": 100.0,
         "currency": "USD",
+        "sector_return": 0.0,
+        # RSI per timeframe
         "rsi_daily": 40.0,
         "rsi_weekly": 38.0,
         "rsi_monthly": 42.0,
+        "rsi_intraday": 39.0,
+        # RSI Divergentie
         "rsi_divergence_daily": "BULLISH",
         "rsi_divergence_weekly": "NEUTRAAL",
         "rsi_divergence_monthly": "NEUTRAAL",
+        "rsi_divergence_intraday": "NEUTRAAL",
+        # MA20 per timeframe
         "ma20_daily": 105.0,
         "ma20_weekly": 103.0,
         "ma20_monthly": 102.0,
+        "ma20_intraday": 104.0,
+        # MA200
         "ma200": 90.0,
+        # APZ
         "apz_upper_daily": 115.0,
         "apz_lower_daily": 85.0,
         "apz_upper_weekly": 118.0,
         "apz_lower_weekly": 82.0,
         "apz_upper_monthly": 120.0,
         "apz_lower_monthly": 80.0,
+        "apz_upper_intraday": 116.0,
+        "apz_lower_intraday": 84.0,
+        # Volume & Bollinger
         "vol_spike": 1.5,
         "bb_pct_b": 0.25,
+        # Overige
         "momentum_1m": 3.0,
         "forward_pe": 20.0,
         "historical_avg_pe": 25.0,
@@ -134,21 +149,19 @@ class TestScorePeg:
 
 class TestScoreForwardPE:
     def test_sterk_goedkoop(self):
-        assert engine.score_forward_pe(14, 25) == 100.0  # ratio 0.56
+        assert engine.score_forward_pe(14, 25) == 100.0
 
     def test_licht_goedkoop(self):
-        assert engine.score_forward_pe(22, 25) == 75.0   # ratio 0.88
+        assert engine.score_forward_pe(22, 25) == 75.0
 
     def test_in_lijn(self):
-        # ratio 1.0 valt in r < 1.1 tak → 50.0
         assert engine.score_forward_pe(25, 25) == 50.0
 
     def test_net_onder_1(self):
-        # ratio 0.99 → r < 1.0 tak → 60.0
-        assert engine.score_forward_pe(24, 25) == 60.0   # ratio 0.96
+        assert engine.score_forward_pe(24, 25) == 60.0
 
     def test_duur(self):
-        assert engine.score_forward_pe(35, 25) == 15.0   # ratio 1.4
+        assert engine.score_forward_pe(35, 25) == 15.0
 
     def test_geen_data(self):
         assert engine.score_forward_pe(None, 25) == 50.0
@@ -193,11 +206,11 @@ class TestScoreApz:
 
     def test_onderkant_zone(self):
         score = engine.score_apz(87, 85, 115)
-        assert score == 85.0  # pct = (87-85)/30 = 0.067 < 0.2
+        assert score == 85.0
 
     def test_midden_zone(self):
         score = engine.score_apz(100, 85, 115)
-        assert score == 50.0  # pct = 0.5
+        assert score == 50.0
 
     def test_geen_data(self):
         assert engine.score_apz(None, 85, 115) == 50.0
@@ -221,7 +234,6 @@ class TestCalculateScore:
 
     def test_signaal_koop_bij_hoge_score(self):
         data = mock_stock_data()
-        # Zet RSI extreem laag en PEG laag → hoge score
         data.update({"rsi_daily": 15, "rsi_weekly": 15, "rsi_monthly": 15, "peg_ratio": 0.3})
         result = engine.calculate_score(data)
         assert result["signal"] in ("KOOP", "NEUTRAAL", "UITSTAP")
@@ -235,7 +247,39 @@ class TestCalculateScore:
     def test_timeframe_scores_aanwezig(self):
         result = engine.calculate_score(mock_stock_data())
         tf = result["scores_by_timeframe"]
-        assert set(tf.keys()) == {"daily", "weekly", "monthly"}
+        assert set(tf.keys()) == {"intraday", "daily", "weekly", "monthly"}
+
+    def test_intraday_score_aanwezig(self):
+        result = engine.calculate_score(mock_stock_data())
+        assert "intraday" in result["scores_by_timeframe"]
+        assert 0 <= result["scores_by_timeframe"]["intraday"] <= 100
+
+    def test_sector_return_gebruikt_uit_data(self):
+        """sector_return uit data moet de momentum score beïnvloeden."""
+        data_laag = mock_stock_data()
+        data_laag["sector_return"] = 10.0  # sector doet het goed → relatief momentum lager
+        data_hoog = mock_stock_data()
+        data_hoog["sector_return"] = -10.0  # sector doet het slecht → relatief momentum hoger
+        score_laag = engine.calculate_score(data_laag)["indicator_scores"]["momentum"]
+        score_hoog = engine.calculate_score(data_hoog)["indicator_scores"]["momentum"]
+        assert score_hoog >= score_laag
+
+    def test_intraday_indicator_scores_aanwezig(self):
+        result = engine.calculate_score(mock_stock_data())
+        scores = result["indicator_scores"]
+        assert "rsi_intraday" in scores
+        assert "ma20_intraday" in scores
+        assert "apz_intraday" in scores
+
+    def test_intraday_none_valt_terug_op_neutraal(self):
+        """Als intraday data ontbreekt, moeten scores op neutraal (50) vallen."""
+        data = mock_stock_data()
+        data["rsi_intraday"] = None
+        data["ma20_intraday"] = None
+        data["apz_upper_intraday"] = None
+        data["apz_lower_intraday"] = None
+        result = engine.calculate_score(data)
+        assert 0 <= result["total_score"] <= 100
 
 
 # ─────────────────────────────────────────────
@@ -273,26 +317,21 @@ class TestCacheLogica:
     def test_tweede_aanroep_cached_true(self):
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
-        # Tweede aanroep: cache al gevuld
         res = client.get("/etf?use_cache=true")
         assert res.json()["cached"] is True
 
     def test_use_cache_false_slaat_cache_over(self):
-        # Vul cache
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
-        # Aanroep met use_cache=false moet verse data halen
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)) as mock_fn:
             res = client.get("/etf?use_cache=false")
             assert mock_fn.call_count > 0
         assert res.json()["cached"] is False
 
     def test_verlopen_cache_wordt_vernieuwd(self):
-        # Stel cache in met verouderde timestamp (70 minuten geleden)
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
         engine._etf_cache_time["default"] = datetime.now() - timedelta(minutes=70)
-
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)) as mock_fn:
             res = client.get("/etf?use_cache=true")
             assert mock_fn.call_count > 0
@@ -301,7 +340,6 @@ class TestCacheLogica:
     def test_geldige_cache_fetch_wordt_niet_aangeroepen(self):
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
-        # Cache is vers → fetch mag niet worden aangeroepen
         with patch.object(engine, "fetch_stock_data") as mock_fn:
             client.get("/etf?use_cache=true")
             mock_fn.assert_not_called()
@@ -309,7 +347,6 @@ class TestCacheLogica:
     def test_cache_age_minutes_stijgt(self):
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(FAKE_HOLDINGS_DATA)):
             client.get("/etf?use_cache=true")
-        # Manipuleer timestamp: 5 minuten geleden
         engine._etf_cache_time["default"] = datetime.now() - timedelta(minutes=5)
         res = client.get("/etf?use_cache=true")
         age = res.json()["cache_age_minutes"]
@@ -333,6 +370,14 @@ class TestApiEndpoints:
         assert "timeframe_weights" in data
         assert "indicator_weights" in data
         assert "indicator_meta" in data
+
+    def test_config_timeframe_weights_bevatten_intraday(self):
+        res = client.get("/config")
+        tw = res.json()["timeframe_weights"]
+        assert "intraday" in tw
+        assert "daily" in tw
+        assert "weekly" in tw
+        assert "monthly" in tw
 
     def test_config_gewichten_optellen_tot_1(self):
         res = client.get("/config")
@@ -365,20 +410,116 @@ class TestApiEndpoints:
 
     def test_post_config_update(self):
         res = client.post("/config", json={
-            "timeframe_weights": {"daily": 0.4, "weekly": 0.4, "monthly": 0.2}
+            "timeframe_weights": {"intraday": 0.15, "daily": 0.25, "weekly": 0.35, "monthly": 0.25}
         })
         assert res.status_code == 200
         assert res.json()["status"] == "ok"
-        # Herstel originele waarden
-        client.post("/config", json={
-            "timeframe_weights": {"daily": 0.3, "weekly": 0.4, "monthly": 0.3}
-        })
 
     def test_post_config_ongeldige_som(self):
         res = client.post("/config", json={
-            "timeframe_weights": {"daily": 0.5, "weekly": 0.5, "monthly": 0.5}
+            "timeframe_weights": {"intraday": 0.5, "daily": 0.5, "weekly": 0.5, "monthly": 0.5}
         })
         assert "error" in res.json()
+
+
+# ─────────────────────────────────────────────
+# SECTOR PERFORMANCE ENDPOINT
+# ─────────────────────────────────────────────
+
+class TestSectorPerformanceEndpoint:
+    def test_endpoint_bereikbaar(self):
+        with patch.object(engine, "_fmp_get", return_value=[
+            {"sector": "Technology", "changesPercentage": "1.45"},
+            {"sector": "Healthcare", "changesPercentage": "-0.23"},
+        ]):
+            res = client.get("/sector-performance")
+        assert res.status_code == 200
+
+    def test_retourneert_sectors_dict(self):
+        with patch.object(engine, "_fmp_get", return_value=[
+            {"sector": "Technology", "changesPercentage": "1.45"},
+        ]):
+            res = client.get("/sector-performance")
+        body = res.json()
+        assert "sectors" in body
+        assert "generated_at" in body
+
+    def test_sector_percentage_als_float(self):
+        with patch.object(engine, "_fmp_get", return_value=[
+            {"sector": "Technology", "changesPercentage": "1.45"},
+        ]):
+            res = client.get("/sector-performance")
+        sectors = res.json()["sectors"]
+        if "Technology" in sectors:
+            assert isinstance(sectors["Technology"], float)
+
+    def test_fmp_fout_geeft_lege_dict(self):
+        """Bij API-fout wordt een lege/gecachte dict teruggegeven (geen crash)."""
+        engine._sector_perf_cache.clear()
+        engine._sector_perf_cache_time = None
+        with patch.object(engine, "_fmp_get", return_value=None):
+            res = client.get("/sector-performance")
+        assert res.status_code == 200
+        assert "sectors" in res.json()
+
+
+# ─────────────────────────────────────────────
+# INTRADAY ENDPOINT
+# ─────────────────────────────────────────────
+
+class TestIntradayEndpoint:
+    def test_endpoint_bereikbaar(self):
+        with patch.object(engine, "_fmp_get", return_value=[
+            {"date": "2026-03-13 10:00:00", "open": 100, "high": 105, "low": 98, "close": 103, "volume": 50000}
+        ]):
+            res = client.get("/intraday/AAPL")
+        assert res.status_code == 200
+
+    def test_retourneert_ticker_en_interval(self):
+        with patch.object(engine, "_fmp_get", return_value=[]):
+            res = client.get("/intraday/NVDA?interval=4hour")
+        body = res.json()
+        assert body["ticker"] == "NVDA"
+        assert body["interval"] == "4hour"
+
+    def test_ticker_wordt_uppercase(self):
+        with patch.object(engine, "_fmp_get", return_value=[]):
+            res = client.get("/intraday/aapl")
+        assert res.json()["ticker"] == "AAPL"
+
+    def test_data_velden_aanwezig(self):
+        with patch.object(engine, "_fmp_get", return_value=[
+            {"date": "2026-03-13 10:00:00", "open": 100.0, "high": 105.0,
+             "low": 98.0, "close": 103.0, "volume": 50000}
+        ]):
+            res = client.get("/intraday/AAPL")
+        data = res.json()["data"]
+        if len(data) > 0:
+            assert "date" in data[0]
+            assert "open" in data[0]
+            assert "high" in data[0]
+            assert "low" in data[0]
+            assert "close" in data[0]
+            assert "volume" in data[0]
+
+    def test_lege_data_bij_api_fout(self):
+        with patch.object(engine, "_fmp_get", return_value=None):
+            res = client.get("/intraday/AAPL")
+        assert res.status_code == 200
+        assert "data" in res.json()
+        assert res.json()["data"] == []
+
+    def test_data_oudste_eerst_gesorteerd(self):
+        """FMP geeft nieuwste eerst — de endpoint moet dat omkeren."""
+        fmp_response = [
+            {"date": "2026-03-13 12:00:00", "open": 103, "high": 106, "low": 102, "close": 105, "volume": 1000},
+            {"date": "2026-03-13 08:00:00", "open": 100, "high": 104, "low": 99,  "close": 103, "volume": 800},
+        ]
+        with patch.object(engine, "_fmp_get", return_value=fmp_response):
+            res = client.get("/intraday/AAPL")
+        data = res.json()["data"]
+        assert len(data) == 2
+        assert data[0]["date"] < data[1]["date"]
 
 
 # ─────────────────────────────────────────────
@@ -386,16 +527,19 @@ class TestApiEndpoints:
 # ─────────────────────────────────────────────
 
 def mock_stock_data_historisch(ticker="TEST"):
-    """Mock stockdata zoals teruggegeven in historische modus:
-    fundamentals zijn None en fundamentals_unavailable=True."""
     data = mock_stock_data(ticker)
     data.update({
-        "forward_pe":          None,
-        "historical_avg_pe":   None,
-        "peg_ratio":           None,
-        "price_fcf":           None,
-        "historical_avg_pfcf": None,
-        "dcf_fair_value":      None,
+        "forward_pe":            None,
+        "historical_avg_pe":     None,
+        "peg_ratio":             None,
+        "price_fcf":             None,
+        "historical_avg_pfcf":   None,
+        "dcf_fair_value":        None,
+        "rsi_intraday":          None,
+        "ma20_intraday":         None,
+        "apz_upper_intraday":    None,
+        "apz_lower_intraday":    None,
+        "rsi_divergence_intraday": "NEUTRAAL",
         "fundamentals_unavailable": True,
     })
     return data
@@ -406,10 +550,7 @@ def mock_stock_data_historisch(ticker="TEST"):
 # ─────────────────────────────────────────────
 
 class TestFetchStockDataHistorisch:
-    """Test het gedrag van fetch_stock_data met as_of_date parameter."""
-
     def test_fundamentals_unavailable_flag_bij_historische_datum(self):
-        """Bij as_of_date moet fundamentals_unavailable True zijn."""
         with patch.object(engine, "_fmp_get") as mock_fmp:
             mock_fmp.side_effect = _mock_fmp_historisch
             result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
@@ -417,31 +558,24 @@ class TestFetchStockDataHistorisch:
         assert result.get("fundamentals_unavailable") is True
 
     def test_ratios_ttm_niet_aangeroepen_bij_historische_datum(self):
-        """/ratios-ttm mag NIET worden aangeroepen in historische modus."""
         aanroepen = []
         def _track_fmp(path, params=None):
             aanroepen.append(path)
             return _mock_fmp_historisch(path, params)
-
         with patch.object(engine, "_fmp_get", side_effect=_track_fmp):
             engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
-
         assert "/ratios-ttm" not in aanroepen
 
     def test_ratios_ttm_wel_aangeroepen_bij_live(self):
-        """/ratios-ttm MOET worden aangeroepen in live modus."""
         aanroepen = []
         def _track_fmp(path, params=None):
             aanroepen.append(path)
             return _mock_fmp_live(path, params)
-
         with patch.object(engine, "_fmp_get", side_effect=_track_fmp):
             engine.fetch_stock_data("AAPL")
-
         assert "/ratios-ttm" in aanroepen
 
     def test_fundamentals_none_bij_historische_datum(self):
-        """Fundamentele velden moeten None zijn in historische modus."""
         with patch.object(engine, "_fmp_get") as mock_fmp:
             mock_fmp.side_effect = _mock_fmp_historisch
             result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
@@ -451,7 +585,6 @@ class TestFetchStockDataHistorisch:
         assert result["dcf_fair_value"] is None
 
     def test_technische_indicatoren_aanwezig_bij_historische_datum(self):
-        """Technische indicatoren (RSI, MA, APZ) moeten wél beschikbaar zijn."""
         with patch.object(engine, "_fmp_get") as mock_fmp:
             mock_fmp.side_effect = _mock_fmp_historisch
             result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
@@ -459,21 +592,26 @@ class TestFetchStockDataHistorisch:
         assert result["ma200"] is not None
         assert result["momentum_1m"] is not None
 
+    def test_intraday_leeg_bij_historische_datum(self):
+        """In historische modus: geen intraday data ophalen."""
+        with patch.object(engine, "_fmp_get") as mock_fmp:
+            mock_fmp.side_effect = _mock_fmp_historisch
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        assert result is not None
+        assert result.get("intraday_history") == []
+        assert result.get("rsi_intraday") is None
+
     def test_koersdatum_gebruikt_opgegeven_datum(self):
-        """De 'to' parameter voor historische koers moet de opgegeven datum zijn."""
         gebruikte_params = {}
         def _track_fmp(path, params=None):
             if path == "/historical-price-eod/full":
                 gebruikte_params.update(params or {})
             return _mock_fmp_historisch(path, params)
-
         with patch.object(engine, "_fmp_get", side_effect=_track_fmp):
             engine.fetch_stock_data("AAPL", as_of_date="2023-06-30")
-
         assert gebruikte_params.get("to") == "2023-06-30"
 
     def test_fundamentals_unavailable_false_bij_live(self):
-        """In live modus moet fundamentals_unavailable False zijn."""
         with patch.object(engine, "_fmp_get") as mock_fmp:
             mock_fmp.side_effect = _mock_fmp_live
             result = engine.fetch_stock_data("AAPL")
@@ -482,8 +620,6 @@ class TestFetchStockDataHistorisch:
 
 
 class TestCalculateScoreZonderFundamentals:
-    """Score-berekening moet werken als fundamentals None zijn (historische modus)."""
-
     def test_score_berekening_werkt_zonder_fundamentals(self):
         result = engine.calculate_score(mock_stock_data_historisch())
         assert 0 <= result["total_score"] <= 100
@@ -494,7 +630,7 @@ class TestCalculateScoreZonderFundamentals:
         scores = result["indicator_scores"]
         assert "rsi_daily" in scores
         assert "ma200" in scores
-        assert "forward_pe" in scores  # Score aanwezig, maar neutraal (50)
+        assert "forward_pe" in scores
         assert scores["forward_pe"] == 50.0
 
     def test_peg_score_neutraal_zonder_data(self):
@@ -505,10 +641,17 @@ class TestCalculateScoreZonderFundamentals:
         result = engine.calculate_score(mock_stock_data_historisch())
         assert result["raw_data"]["fundamentals_unavailable"] is True
 
+    def test_intraday_score_berekend_zonder_intraday_data(self):
+        """Zonder intraday RSI/MA/APZ data moeten die indicatoren neutraal (50) terugvallen,
+        maar gedeelde indicatoren (Bollinger, momentum) geven nog steeds een waarde."""
+        result = engine.calculate_score(mock_stock_data_historisch())
+        score = result["scores_by_timeframe"]["intraday"]
+        assert 0 <= score <= 100
+        # RSI-intraday en MA20-intraday vallen terug op 50 → score kan niet erg afwijken
+        assert 40 <= score <= 65
+
 
 class TestHistorischEndpoint:
-    """Tests voor het /historical API endpoint."""
-
     def test_ongeldige_datum_geeft_foutmelding(self):
         res = client.get("/historical?date=geen-datum")
         assert res.status_code == 200
@@ -551,31 +694,25 @@ class TestHistorischEndpoint:
         assert res.json()["summary"]["etf_signal"] in ("INSTAP", "AFWACHTEN", "UITSTAP")
 
     def test_custom_tickers_worden_gebruikt(self):
-        """Met ?tickers=AAPL,MSFT mogen alleen die twee aandelen geanalyseerd worden."""
         calls = []
         def _track(ticker, as_of_date=None):
             calls.append(ticker)
             return mock_stock_data_historisch(ticker)
-
         with patch.object(engine, "fetch_stock_data", side_effect=_track):
             res = client.get("/historical?date=2024-06-01&tickers=AAPL,MSFT")
         assert res.status_code == 200
         assert set(calls) == {"AAPL", "MSFT"}
 
     def test_as_of_date_doorgegeven_aan_fetch(self):
-        """fetch_stock_data moet worden aangeroepen met as_of_date=opgegeven datum."""
         ontvangen_datum = []
         def _track(ticker, as_of_date=None):
             ontvangen_datum.append(as_of_date)
             return mock_stock_data_historisch(ticker)
-
         with patch.object(engine, "fetch_stock_data", side_effect=_track):
             client.get("/historical?date=2023-11-20&tickers=AAPL")
-
         assert all(d == "2023-11-20" for d in ontvangen_datum)
 
     def test_fundamentals_unavailable_in_holdings(self):
-        """Holdings in historische response moeten fundamentals_unavailable=True hebben."""
         historische_data = [mock_stock_data_historisch(h["ticker"]) for h in engine.ETF_HOLDINGS]
         with patch.object(engine, "fetch_stock_data", side_effect=_make_mock_fetch(historische_data)):
             res = client.get("/historical?date=2024-06-01")
@@ -590,6 +727,7 @@ class TestHistorischEndpoint:
 
 import pandas as pd
 import numpy as np
+
 
 def _maak_koersdata(n=300, basisprijs=100.0):
     """Genereer n dagelijkse koersrecords (nieuwste eerst, zoals FMP teruggeeft)."""
@@ -609,31 +747,39 @@ def _maak_koersdata(n=300, basisprijs=100.0):
             "adjClose":  prijs,
             "volume":    int(volumes[i]),
         })
-    return records  # nieuwste eerst, zoals FMP
+    return records
 
 
 def _mock_fmp_historisch(path, params=None):
-    """FMP-mock voor historische modus: geen ratios-ttm."""
+    """FMP-mock voor historische modus: geen ratios-ttm, geen intraday."""
     if path == "/profile":
         return [{"companyName": "Test Corp", "sector": "Technology", "currency": "USD"}]
     if path == "/historical-price-eod/full":
         return _maak_koersdata()
-    return None  # /ratios-ttm wordt niet aangeroepen in historische modus
+    return None
 
 
 def _mock_fmp_live(path, params=None):
-    """FMP-mock voor live modus: met ratios-ttm."""
+    """FMP-mock voor live modus: met ratios-ttm, sector, en technische indicatoren."""
     if path == "/profile":
         return [{"companyName": "Test Corp", "sector": "Technology", "currency": "USD"}]
     if path == "/historical-price-eod/full":
         return _maak_koersdata()
     if path == "/ratios-ttm":
         return [{
-            "priceToEarningsRatioTTM": 22.0,
-            "priceToEarningsGrowthRatioTTM": 1.1,
-            "priceToFreeCashFlowRatioTTM": 18.0,
-            "freeCashFlowPerShareTTM": 5.0,
+            "priceToEarningsRatioTTM":          22.0,
+            "priceToEarningsGrowthRatioTTM":    1.1,
+            "priceToFreeCashFlowRatioTTM":      18.0,
+            "freeCashFlowPerShareTTM":          5.0,
         }]
+    if path == "/sector-performance":
+        return [{"sector": "Technology", "changesPercentage": "1.2"}]
+    # Technische indicatoren (stable API): geef lege lijst terug → fallback op lokale berekening
+    if path.startswith("/technical-indicators/"):
+        return []
+    # Intraday: geef lege lijst terug → geen intraday data
+    if path.startswith("/historical-chart/"):
+        return []
     return None
 
 
@@ -642,8 +788,6 @@ def _mock_fmp_live(path, params=None):
 # ─────────────────────────────────────────────
 
 class TestOhlcDayEnPriceHistory:
-    """Test dat fetch_stock_data ohlc_day en price_history correct retourneert."""
-
     def test_ohlc_day_aanwezig(self):
         with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
             result = engine.fetch_stock_data("AAPL")
@@ -663,7 +807,6 @@ class TestOhlcDayEnPriceHistory:
         assert "volume" in ohlc
 
     def test_ohlc_day_close_gelijk_aan_current_price(self):
-        """De close van ohlc_day moet overeenkomen met current_price."""
         with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
             result = engine.fetch_stock_data("AAPL")
         assert result["ohlc_day"]["close"] == result["current_price"]
@@ -682,15 +825,17 @@ class TestOhlcDayEnPriceHistory:
         assert isinstance(result["price_history"], list)
         assert len(result["price_history"]) > 0
 
-    def test_price_history_bevat_date_en_close(self):
+    def test_price_history_bevat_date_close_ma(self):
+        """price_history moet date, close én ma20/ma200 velden bevatten."""
         with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
             result = engine.fetch_stock_data("AAPL")
         for record in result["price_history"][:5]:
             assert "date" in record
             assert "close" in record
+            assert "ma20" in record
+            assert "ma200" in record
 
     def test_price_history_gesorteerd_oudste_eerst(self):
-        """price_history moet chronologisch gesorteerd zijn (oudste eerst)."""
         with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
             result = engine.fetch_stock_data("AAPL")
         datums = [r["date"] for r in result["price_history"]]
@@ -701,9 +846,64 @@ class TestOhlcDayEnPriceHistory:
             result = engine.fetch_stock_data("AAPL")
         assert result["price_history"][-1]["close"] == result["current_price"]
 
+    def test_intraday_history_aanwezig(self):
+        """intraday_history moet altijd aanwezig zijn (eventueel leeg)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        assert "intraday_history" in result
+        assert isinstance(result["intraday_history"], list)
+
     def test_ohlc_day_ook_aanwezig_in_historische_modus(self):
         with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
             result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
         assert result is not None
         assert "ohlc_day" in result
         assert "price_history" in result
+
+    def test_price_history_bevat_rsi(self):
+        """price_history moet rsi veld bevatten (lokaal berekend)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_live):
+            result = engine.fetch_stock_data("AAPL")
+        rsi_waarden = [r["rsi"] for r in result["price_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "price_history moet RSI-waarden bevatten"
+        assert all(0 <= v <= 100 for v in rsi_waarden), "RSI-waarden moeten tussen 0 en 100 liggen"
+
+    def test_price_history_rsi_ook_in_historische_modus(self):
+        """RSI moet ook beschikbaar zijn in historische modus (lokale berekening)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        rsi_waarden = [r["rsi"] for r in result["price_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "RSI moet ook in historische modus aanwezig zijn"
+
+    def test_ma_aanwezig_in_historische_modus(self):
+        """MA20/MA200 moeten lokaal berekend worden in historische modus (geen API)."""
+        with patch.object(engine, "_fmp_get", side_effect=_mock_fmp_historisch):
+            result = engine.fetch_stock_data("AAPL", as_of_date="2024-01-15")
+        ma20_waarden  = [r["ma20"]  for r in result["price_history"] if r.get("ma20")  is not None]
+        ma200_waarden = [r["ma200"] for r in result["price_history"] if r.get("ma200") is not None]
+        assert len(ma20_waarden)  > 0, "MA20 moet lokaal berekend worden in historische modus"
+        assert len(ma200_waarden) > 0, "MA200 moet lokaal berekend worden in historische modus"
+
+    def test_intraday_history_bevat_rsi_bij_live_data(self):
+        """intraday_history moet rsi bevatten als intraday data beschikbaar is."""
+        # 25 candles over meerdere dagen (4-uurs intervallen, uur 0–20 per dag)
+        from datetime import date, timedelta
+        candles = []
+        for i in range(25):
+            dag = date(2024, 1, 15) - timedelta(days=i // 5)
+            uur = (i % 5) * 4
+            candles.append({
+                "date": f"{dag} {uur:02d}:00:00",
+                "close": 180.0 + i, "open": 180.0, "high": 182.0, "low": 179.0, "volume": 1000000,
+            })
+        intraday_candles = candles
+
+        def mock_met_intraday(path, params=None):
+            if path == "/historical-chart/4hour":
+                return list(reversed(intraday_candles))
+            return _mock_fmp_live(path, params)
+
+        with patch.object(engine, "_fmp_get", side_effect=mock_met_intraday):
+            result = engine.fetch_stock_data("AAPL")
+        rsi_waarden = [r["rsi"] for r in result["intraday_history"] if r.get("rsi") is not None]
+        assert len(rsi_waarden) > 0, "intraday_history moet RSI-waarden bevatten"
