@@ -142,11 +142,14 @@ export default function App() {
         .mobile-cards { display: none; }
         .header-wrapper { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 24px; }
         .header-logo { flex-shrink: 0; }
-        .header-form { display: flex; align-items: center; gap: 6px; }
-        .header-ticker-input { width: 220px; height: 34px; box-sizing: border-box; }
+        .header-logo + .header-form { margin-left: 5%; }
+        .header-form { display: flex; align-items: center; gap: 6px; width: 440px; }
+        .header-form .header-btn { flex-shrink: 0; width: 110px; justify-content: center; }
+        .header-ticker-input { flex: 1; width: 0; height: 34px; box-sizing: border-box; }
         .header-date-input { flex: 0 0 auto; }
         .header-cache-row { display: flex; align-items: center; gap: 8px; margin-left: auto; }
         .header-btn { height: 34px; box-sizing: border-box; display: flex; align-items: center; }
+        .header-tickers { display: block; }
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .ohlc-desktop { display: block; }
         .ohlc-mobile { display: none; }
@@ -155,12 +158,13 @@ export default function App() {
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .desktop-table { display: none; }
           .mobile-cards { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
-          .header-wrapper { flex-direction: column; align-items: stretch; padding: 12px 14px; gap: 8px; }
+          .header-wrapper { display: flex; flex-direction: column; align-items: stretch; padding: 12px 14px; gap: 8px; }
+          .header-logo + .header-form { margin-left: 0; }
           .header-form { width: 100%; }
           .header-ticker-input { flex: 1; width: auto; min-width: 0; }
           .header-date-input { flex: 1; min-width: 0; }
           .header-cache-row { justify-content: space-between; margin-left: 0; }
-          .header-form .header-btn { flex-shrink: 0; width: auto; min-width: 96px; justify-content: center; }
+          .header-form .header-btn { flex-shrink: 0; width: 110px; justify-content: center; }
           .header-cache-row .header-btn { flex: 1; justify-content: center; }
           .detail-grid { grid-template-columns: 1fr; }
           .ohlc-desktop { display: none; }

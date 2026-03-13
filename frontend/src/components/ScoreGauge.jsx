@@ -6,7 +6,7 @@ import { signalColor } from "../helpers";
 export default function ScoreGauge({ score, signal, holdingsAnalyzed, holdingsTotal }) {
   const color = signalColor(signal);
   return (
-    <div style={{ background: "#0D1321", border: `1px solid ${color}33`, borderRadius: 14, padding: 24, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ background: "#0D1321", border: `1px solid ${color}33`, borderRadius: 14, padding: 24, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", boxSizing: "border-box" }}>
       <div style={{ fontSize: 10, color: "#475569", fontFamily: "'DM Mono'", marginBottom: 12, letterSpacing: "0.1em" }}>ETF TOTAAL SCORE</div>
       <div style={{ position: "relative", width: 155, height: 155 }}>
         <ResponsiveContainer width="100%" height="100%">

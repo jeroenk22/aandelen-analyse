@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import IndicatorTooltip from "./IndicatorTooltip";
 
 // ─── Custom datepicker in dashboard-stijl ────────────────────────────────────
-function DatePicker({ value, onChange, min, max }) {
+function DatePicker({ value, onChange, min, max, onClear }) {
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(() => (value ? new Date(value + "T00:00:00") : new Date()).getFullYear());
   const [viewMonth, setViewMonth] = useState(() => (value ? new Date(value + "T00:00:00") : new Date()).getMonth());
@@ -73,13 +73,20 @@ function DatePicker({ value, onChange, min, max }) {
         data-testid="date-picker-trigger"
         onClick={() => setOpen(o => !o)}
         style={{
-          padding: "7px 10px", flex: 1, cursor: "pointer", userSelect: "none",
+          padding: selected && onClear ? "7px 24px 7px 10px" : "7px 10px",
+          flex: 1, cursor: "pointer", userSelect: "none",
           color: selected ? "#FCD34D" : "#475569",
           fontSize: 12, fontFamily: "'DM Mono'", display: "flex", alignItems: "center",
         }}
       >
         {displayVal}
       </div>
+      {selected && onClear && (
+        <button type="button" onClick={e => { e.stopPropagation(); onClear(); }}
+          style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+            background: "none", border: "none", color: "#475569", cursor: "pointer",
+            fontSize: 13, lineHeight: 1, padding: "2px 3px", display: "flex", alignItems: "center" }}>✕</button>
+      )}
 
       {/* Kalender dropdown */}
       {open && (
@@ -170,7 +177,7 @@ export default function AppHeader({
       {/* Logo & status */}
       <div className="header-logo" style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ width: 34, height: 34, borderRadius: 8, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📡</div>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>ETF Intelligence Dashboard</div>
           <div style={{ fontSize: 11, color: "#475569", fontFamily: "'DM Mono'" }}>
             {useMock
@@ -181,7 +188,7 @@ export default function AppHeader({
                   ? `⚡ uit cache · ${data.cache_age_minutes} min geleden · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
                   : `Live · ${new Date(data.generated_at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
             }
-            {activeTickers && <span style={{ color: "#3B82F6", marginLeft: 8 }}>· {activeTickers}</span>}
+            {activeTickers && <span className="header-tickers" style={{ color: "#3B82F6" }}>{activeTickers}</span>}
           </div>
         </div>
       </div>
@@ -225,7 +232,6 @@ export default function AppHeader({
           borderRadius: 6, background: "#060C18",
           boxShadow: isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none",
           transition: "box-shadow 0.2s, border-color 0.2s",
-          position: "relative",
         }}>
           <span style={{
             padding: "0 9px", display: "flex", alignItems: "center",
@@ -239,21 +245,14 @@ export default function AppHeader({
           <DatePicker
             value={historicalDateInput}
             onChange={v => { setHistoricalDateInput(v); if (!v) onClearHistorical(); }}
+            onClear={onClearHistorical}
             min={new Date(Date.now() - 30 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
             max={new Date().toISOString().split("T")[0]}
           />
-          {/* Inline ✕ in datepicker */}
-          {isHistoricalMode && (
-            <button type="button" onClick={onClearHistorical} style={{
-              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-              background: "none", border: "none", color: "#475569", cursor: "pointer",
-              fontSize: 13, lineHeight: 1, padding: "2px 3px", display: "flex", alignItems: "center",
-            }}>✕</button>
-          )}
         </div>
         <button type="submit" className="hov header-btn"
           style={{
-            padding: "0 14px", borderRadius: 6, cursor: "pointer", minWidth: 90, flexShrink: 0,
+            padding: "0 14px", borderRadius: 6, cursor: "pointer", flexShrink: 0,
             background: isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
             border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
             color: "#F59E0B", fontSize: 12, fontWeight: 600, justifyContent: "center",
