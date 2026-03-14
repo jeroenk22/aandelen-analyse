@@ -355,6 +355,36 @@ def _calc_rsi_local(series: pd.Series, period: int = 14) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
+def _calc_williams_local(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Bereken Williams %R lokaal: schaal -100 (oversold) tot 0 (overbought)."""
+    highest_high = high.rolling(period).max()
+    lowest_low   = low.rolling(period).min()
+    wr = (highest_high - close) / (highest_high - lowest_low) * -100
+    return wr
+
+
+def _calc_adx_local(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Bereken ADX lokaal: maat voor trendsterkte (niet richting), 0–100."""
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low  - close.shift(1)).abs()
+    tr  = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    dm_plus  = high - high.shift(1)
+    dm_minus = low.shift(1) - low
+    dm_plus  = dm_plus.where((dm_plus  > dm_minus) & (dm_plus  > 0), 0.0)
+    dm_minus = dm_minus.where((dm_minus > dm_plus)  & (dm_minus > 0), 0.0)
+
+    alpha = 1 / period
+    atr      = tr.ewm(alpha=alpha, adjust=False).mean()
+    di_plus  = 100 * dm_plus.ewm(alpha=alpha,  adjust=False).mean() / atr
+    di_minus = 100 * dm_minus.ewm(alpha=alpha, adjust=False).mean() / atr
+
+    dx  = 100 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, float("nan"))
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    return adx
+
+
 # ─────────────────────────────────────────────
 # SCORE FUNCTIES
 # ─────────────────────────────────────────────
@@ -798,7 +828,7 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
         parts = [(v, w) for v, w in [(mom_1m, 0.30), (mom_3m, 0.40), (mom_6m, 0.30)] if v is not None]
         mom = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
 
-        # ── 12. Williams %R en ADX per timeframe (live modus, US/Canada only) ──
+        # ── 12. Williams %R en ADX per timeframe ──
         williams_intraday = williams_daily = williams_weekly = williams_monthly = None
         adx_intraday = adx_daily = adx_weekly = adx_monthly = None
 
@@ -816,6 +846,31 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                     if tf_name == "daily":   adx_daily   = float(raw) if raw is not None else None
                     elif tf_name == "weekly":  adx_weekly  = float(raw) if raw is not None else None
                     elif tf_name == "monthly": adx_monthly = float(raw) if raw is not None else None
+        else:
+            # Historische modus: lokale berekening uit EOD-data
+            hi_d  = hist["high"]
+            lo_d  = hist["low"]
+            cl_d  = hist["Close"]
+            hi_w  = hist["high"].resample("W").max()
+            lo_w  = hist["low"].resample("W").min()
+            cl_w  = hist_w
+            hi_m  = hist["high"].resample("ME").max()
+            lo_m  = hist["low"].resample("ME").min()
+            cl_m  = hist_m
+
+            wr_d = _calc_williams_local(hi_d, lo_d, cl_d)
+            wr_w = _calc_williams_local(hi_w, lo_w, cl_w)
+            wr_m = _calc_williams_local(hi_m, lo_m, cl_m)
+            williams_daily   = float(wr_d.dropna().iloc[-1]) if len(wr_d.dropna()) > 0 else None
+            williams_weekly  = float(wr_w.dropna().iloc[-1]) if len(wr_w.dropna()) > 0 else None
+            williams_monthly = float(wr_m.dropna().iloc[-1]) if len(wr_m.dropna()) > 0 else None
+
+            adx_d = _calc_adx_local(hi_d, lo_d, cl_d)
+            adx_w = _calc_adx_local(hi_w, lo_w, cl_w)
+            adx_m = _calc_adx_local(hi_m, lo_m, cl_m)
+            adx_daily   = float(adx_d.dropna().iloc[-1]) if len(adx_d.dropna()) > 0 else None
+            adx_weekly  = float(adx_w.dropna().iloc[-1]) if len(adx_w.dropna()) > 0 else None
+            adx_monthly = float(adx_m.dropna().iloc[-1]) if len(adx_m.dropna()) > 0 else None
 
         # ── 13. Intraday 4-uurs timeframe (live modus, Premium) ──
         rsi_intraday = rsi_div_intraday = ma20_intraday = None
