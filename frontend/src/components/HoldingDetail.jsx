@@ -127,7 +127,8 @@ function RawDataCard({ holding }) {
 
 // Indicator scores lijst met voortgangsbalkjes en tooltips
 function IndicatorScores({ holding, isHistoricalMode }) {
-  const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "dcf_discount"]);
+  const FUNDAMENTALS   = new Set(["forward_pe", "peg", "price_fcf", "analyst_target"]);
+  const US_CANADA_ONLY = new Set(["williams", "adx"]);
 
   return (
     <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
@@ -141,12 +142,14 @@ function IndicatorScores({ holding, isHistoricalMode }) {
         // Fundamentals ontbreken in historische modus (altijd) of voor niet-US aandelen (forward_pe null)
         const noFundamentalsHistorical = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
         const noFundamentalsNonUS      = !isHistoricalMode && FUNDAMENTALS.has(key) && holding.raw_data?.forward_pe == null;
-        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS;
+        // Williams %R en ADX alleen beschikbaar voor US/Canada via API
+        const noUsCanada = US_CANADA_ONLY.has(key) && val == null;
+        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS || noUsCanada;
 
         if (unavailable) {
           const reason = isHistoricalMode
             ? "Niet beschikbaar in historische modus"
-            : "Geen fundamentals data (niet-US)";
+            : FUNDAMENTALS.has(key) ? "Geen fundamentals data (niet-US)" : "Alleen beschikbaar voor US/Canada";
           return (
             <div key={key} style={{ marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>

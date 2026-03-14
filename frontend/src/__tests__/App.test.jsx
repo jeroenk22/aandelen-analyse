@@ -26,9 +26,10 @@ const makeLiveResponse = (cached = false, cacheAgeMinutes = 0) => ({
   config: {
     timeframe_weights: { daily: 0.30, weekly: 0.40, monthly: 0.30 },
     indicator_weights: {
-      rsi: 0.13, ma20: 0.08, ma200: 0.07, forward_pe: 0.15,
-      peg: 0.15, price_fcf: 0.11, momentum: 0.08,
-      dcf_discount: 0.02, panic: 0.05, rsi_divergence: 0.08, apz: 0.08,
+      rsi: 0.11, ma20: 0.07, ma200: 0.06, forward_pe: 0.12,
+      peg: 0.12, price_fcf: 0.09, momentum: 0.07,
+      analyst_target: 0.08, panic: 0.05, rsi_divergence: 0.06, apz: 0.06,
+      williams: 0.06, adx: 0.05,
     },
   },
   holdings: [],
@@ -71,7 +72,9 @@ function makeHolding(overrides = {}) {
       ma20_daily: 65, ma20_weekly: 63, ma20_monthly: 62,
       ma200: 82, apz_daily: 55, apz_weekly: 52, apz_monthly: 50,
       forward_pe: 68, peg: 71, price_fcf: 65, momentum: 75,
-      dcf_discount: 55, panic: 60,
+      analyst_target: 80, panic: 60,
+      williams_intraday: 85, williams_daily: 83, williams_weekly: 80, williams_monthly: 78,
+      adx_intraday: 62, adx_daily: 60, adx_weekly: 58, adx_monthly: 55,
     },
     raw_data: {
       rsi_daily: 42.1, peg_ratio: 0.89, forward_pe: 28.4,
