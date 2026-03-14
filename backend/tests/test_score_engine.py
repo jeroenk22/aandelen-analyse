@@ -73,7 +73,18 @@ def mock_stock_data(ticker="TEST"):
         "peg_ratio": 0.9,
         "price_fcf": 18.0,
         "historical_avg_pfcf": 22.0,
-        "dcf_fair_value": 120.0,
+        "analyst_target": 120.0,
+        "n_analysts": 5,
+        # Williams %R per timeframe
+        "williams_daily": -65.0,
+        "williams_weekly": -70.0,
+        "williams_monthly": -60.0,
+        "williams_intraday": -72.0,
+        # ADX per timeframe
+        "adx_daily": 28.0,
+        "adx_weekly": 32.0,
+        "adx_monthly": 25.0,
+        "adx_intraday": 30.0,
     }
 
 
@@ -534,7 +545,16 @@ def mock_stock_data_historisch(ticker="TEST"):
         "peg_ratio":             None,
         "price_fcf":             None,
         "historical_avg_pfcf":   None,
-        "dcf_fair_value":        None,
+        "analyst_target":        None,
+        "n_analysts":            0,
+        "williams_daily":        None,
+        "williams_weekly":       None,
+        "williams_monthly":      None,
+        "williams_intraday":     None,
+        "adx_daily":             None,
+        "adx_weekly":            None,
+        "adx_monthly":           None,
+        "adx_intraday":          None,
         "rsi_intraday":          None,
         "ma20_intraday":         None,
         "apz_upper_intraday":    None,
@@ -582,7 +602,7 @@ class TestFetchStockDataHistorisch:
         assert result["forward_pe"] is None
         assert result["peg_ratio"] is None
         assert result["price_fcf"] is None
-        assert result["dcf_fair_value"] is None
+        assert result["analyst_target"] is None
 
     def test_technische_indicatoren_aanwezig_bij_historische_datum(self):
         with patch.object(engine, "_fmp_get") as mock_fmp:
