@@ -25,7 +25,7 @@ export default function PriceChart({ ticker, name, currency, priceHistory, isHis
   const [intradayData, setIntradayData]       = useState([]);
   const [intradayLoading, setIntradayLoading] = useState(false);
   const [showMA, setShowMA]                   = useState(true);
-  const [showRSI, setShowRSI]                 = useState(false);
+  const [showRSI, setShowRSI]                 = useState(true);
 
   // Reset intraday bij wisselen van aandeel
   useEffect(() => {

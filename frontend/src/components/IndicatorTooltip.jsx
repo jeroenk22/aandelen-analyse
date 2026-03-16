@@ -35,7 +35,7 @@ export default function IndicatorTooltip({ tooltip, children, direction = "up", 
         <div style={{
           position: "absolute", ...vertPos, ...horizPos,
           background: "#0D1A2D", border: "1px solid #1E3A5F", borderRadius: 8,
-          padding: "10px 14px", fontSize: 11, color: "#94A3B8",
+          padding: "10px 14px", fontSize: 11, color: "#94A3B8", fontWeight: 400,
           width: 280, maxWidth: "calc(100vw - 28px)", lineHeight: 1.65, zIndex: 200,
           pointerEvents: "none", boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
           whiteSpace: "normal",

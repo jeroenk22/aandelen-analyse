@@ -1,4 +1,5 @@
 import { signalColor, scoreColor, fmt } from "../helpers";
+import IndicatorTooltip from "./IndicatorTooltip";
 
 // Holdings-overzicht tabel met sorteermogelijkheden
 // Props: holdings (array), sortBy (string), onSortChange (fn), selectedTicker (string|null), onSelectHolding (fn)
@@ -31,8 +32,28 @@ export default function HoldingsTable({ holdings, sortBy, onSortChange, selected
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#060C18" }}>
-              {["Ticker","Naam","Koers","ETF %","Score","Signaal","RSI dag","PEG","Fwd P/E","Afstand MA200"].map(h => (
-                <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 10, color: "#475569", fontWeight: 600, fontFamily: "'DM Mono'", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{h.toUpperCase()}</th>
+              {[
+                { label: "Ticker" },
+                { label: "Naam" },
+                { label: "Koers" },
+                { label: "ETF %",        tooltip: "Weging van dit aandeel in het ETF. Een hogere weging betekent een groter effect op de totale ETF-prestatie." },
+                { label: "Score",        tooltip: "Gewogen totaalscore (0–100) op basis van 11 technische en fundamentele indicatoren over 4 timeframes. ≥65 = INSTAP · 45–64 = AFWACHTEN · <45 = UITSTAP." },
+                { label: "Signaal",      tooltip: "Koopsignaal afgeleid van de totaalscore: INSTAP (≥65), AFWACHTEN (45–64) of UITSTAP (<45)." },
+                { label: "RSI dag",      tooltip: "Relative Strength Index op dagbasis (14 perioden). Meet momentum en mogelijke keerpunten. <30 = oververkocht (groen, koopzone) · >70 = overbought (rood, verkoopzone)." },
+                { label: "PEG",          tooltip: "Price/Earnings-to-Growth ratio: verhouding tussen waardering en verwachte winstgroei. <1 = mogelijk ondergewaardeerd (groen) · >2 = duur t.o.v. groei (rood). Alleen beschikbaar voor US-aandelen." },
+                { label: "Fwd P/E",      tooltip: "Forward Price/Earnings: koers gedeeld door de verwachte winst per aandeel voor de komende 12 maanden. Geeft inzicht in de huidige waardering t.o.v. toekomstige winstverwachtingen. Alleen beschikbaar voor US-aandelen." },
+                { label: "Afstand MA200", tooltip: "Procentuele afstand van de huidige koers tot het 200-daags voortschrijdend gemiddelde. <5% boven MA200 = mogelijke steunzone (groen) · >30% boven MA200 = risico op correctie (rood)." },
+              ].map(({ label, tooltip }) => (
+                <th key={label} style={{ padding: "10px 14px", textAlign: "left", fontSize: 10, color: "#475569", fontWeight: 600, fontFamily: "'DM Mono'", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
+                  {tooltip ? (
+                    <IndicatorTooltip tooltip={tooltip} direction="down">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "default" }}>
+                        {label.toUpperCase()}
+                        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 13, height: 13, borderRadius: "50%", border: "1px solid #334155", color: "#475569", fontSize: 8, fontFamily: "'DM Mono'", cursor: "pointer", flexShrink: 0 }}>?</span>
+                      </span>
+                    </IndicatorTooltip>
+                  ) : label.toUpperCase()}
+                </th>
               ))}
             </tr>
           </thead>
