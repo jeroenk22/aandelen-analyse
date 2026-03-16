@@ -38,13 +38,16 @@ function DatePicker({ value, onChange, min, max, onClear }) {
 
   const selectDay = (day) => {
     if (isDisabled(day)) return;
-    const str = new Date(viewYear, viewMonth, day).toISOString().split("T")[0];
+    // Gebruik lokale datumopmaak om timezone-verschuiving te voorkomen (toISOString geeft UTC terug)
+    const str = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     onChange(str);
     setOpen(false);
   };
 
   const goToday = () => {
-    const str = new Date().toISOString().split("T")[0];
+    const t = new Date();
+    // Gebruik lokale datumopmaak om timezone-verschuiving te voorkomen
+    const str = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
     onChange(str);
     setOpen(false);
   };
@@ -225,41 +228,51 @@ export default function AppHeader({
       </form>
 
       {/* Historische datum picker */}
-      <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
-        <div style={{
-          display: "flex", alignItems: "stretch", height: 34, boxSizing: "border-box", flex: 1,
-          border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#1E3A5F"}`,
-          borderRadius: 6, background: "#060C18",
-          boxShadow: isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none",
-          transition: "box-shadow 0.2s, border-color 0.2s",
-        }}>
-          <span style={{
-            padding: "0 9px", display: "flex", alignItems: "center",
-            fontSize: 11, color: isHistoricalMode ? "#F59E0B" : "#475569",
-            fontFamily: "'DM Mono'", fontWeight: 600,
-            borderRight: `1px solid ${isHistoricalMode ? "#F59E0B44" : "#1E2D45"}`,
-            background: isHistoricalMode ? "#F59E0B0D" : "transparent",
-            borderRadius: "5px 0 0 5px",
-            userSelect: "none", letterSpacing: "0.04em", flexShrink: 0,
-          }}>🕐</span>
-          <DatePicker
-            value={historicalDateInput}
-            onChange={v => { setHistoricalDateInput(v); if (!v) onClearHistorical(); }}
-            onClear={onClearHistorical}
-            min={new Date(Date.now() - 30 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
-            max={new Date().toISOString().split("T")[0]}
-          />
-        </div>
-        <button type="submit" className="hov header-btn"
-          style={{
-            padding: "0 14px", borderRadius: 6, cursor: "pointer", flexShrink: 0,
-            background: isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
-            border: `1px solid ${isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
-            color: "#F59E0B", fontSize: 12, fontWeight: 600, justifyContent: "center",
-          }}>
-          {isHistoricalMode ? "Actief" : "Historisch"}
-        </button>
-      </form>
+      {(() => {
+        // Pending = datum gewijzigd maar nog niet opgehaald
+        const isPending = historicalDateInput && historicalDateInput !== historicalDate;
+        const borderColor = isPending ? "#3B82F688" : isHistoricalMode ? "#F59E0B88" : "#1E3A5F";
+        const glowColor   = isPending ? "0 0 0 2px #3B82F61A" : isHistoricalMode ? "0 0 0 2px #F59E0B1A" : "none";
+        const iconColor   = isPending ? "#3B82F6" : isHistoricalMode ? "#F59E0B" : "#475569";
+        return (
+          <form onSubmit={e => { e.preventDefault(); onSubmitHistorical(); }} className="header-form">
+            <div style={{
+              display: "flex", alignItems: "stretch", height: 34, boxSizing: "border-box", flex: 1,
+              border: `1px solid ${borderColor}`,
+              borderRadius: 6, background: "#060C18",
+              boxShadow: glowColor,
+              transition: "box-shadow 0.2s, border-color 0.2s",
+            }}>
+              <span style={{
+                padding: "0 9px", display: "flex", alignItems: "center",
+                fontSize: 11, color: iconColor,
+                fontFamily: "'DM Mono'", fontWeight: 600,
+                borderRight: `1px solid ${isPending ? "#3B82F644" : isHistoricalMode ? "#F59E0B44" : "#1E2D45"}`,
+                background: isPending ? "#3B82F60D" : isHistoricalMode ? "#F59E0B0D" : "transparent",
+                borderRadius: "5px 0 0 5px",
+                userSelect: "none", letterSpacing: "0.04em", flexShrink: 0,
+              }}>🕐</span>
+              <DatePicker
+                value={historicalDateInput}
+                onChange={v => { setHistoricalDateInput(v); if (!v) onClearHistorical(); }}
+                onClear={onClearHistorical}
+                min={new Date(Date.now() - 30 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                max={new Date().toISOString().split("T")[0]}
+              />
+            </div>
+            <button type="submit" className="hov header-btn"
+              style={{
+                padding: "0 14px", borderRadius: 6, cursor: isPending || historicalDateInput ? "pointer" : "default", flexShrink: 0,
+                background: isPending ? "#1E3A5F" : isHistoricalMode ? "#F59E0B1A" : "#2D1F00",
+                border: `1px solid ${isPending ? "#3B82F688" : isHistoricalMode ? "#F59E0B88" : "#92400E88"}`,
+                color: isPending ? "#93C5FD" : "#F59E0B",
+                fontSize: 12, fontWeight: 600, justifyContent: "center",
+              }}>
+              {loading && isHistoricalMode ? "⏳ Laden..." : isPending ? "Ophalen" : isHistoricalMode ? "Actief" : "Historisch"}
+            </button>
+          </form>
+        );
+      })()}
 
       {/* Cache-toggle & vernieuwen */}
       <div className="header-cache-row">
@@ -271,9 +284,14 @@ export default function AppHeader({
             ⚡ Cache
           </label>
         </IndicatorTooltip>
-        <button className="hov header-btn" onClick={onRefresh}
-          style={{ padding: "0 16px", borderRadius: 6, background: "#1E3A5F", border: "1px solid #2D4E7A", color: "#93C5FD", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
-          {loading ? "⏳ Laden..." : "🔄 Vernieuwen"}
+        <button className="hov header-btn" onClick={isHistoricalMode ? onClearHistorical : onRefresh}
+          style={{
+            padding: "0 16px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer",
+            background: isHistoricalMode ? "#0D2A1A" : "#1E3A5F",
+            border: `1px solid ${isHistoricalMode ? "#16A34A88" : "#2D4E7A"}`,
+            color: isHistoricalMode ? "#4ADE80" : "#93C5FD",
+          }}>
+          {loading && !isHistoricalMode ? "⏳ Laden..." : isHistoricalMode ? "▶ Terug naar Live" : "🔄 Vernieuwen"}
         </button>
       </div>
     </div>
