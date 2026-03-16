@@ -26,9 +26,10 @@ const makeLiveResponse = (cached = false, cacheAgeMinutes = 0) => ({
   config: {
     timeframe_weights: { daily: 0.30, weekly: 0.40, monthly: 0.30 },
     indicator_weights: {
-      rsi: 0.13, ma20: 0.08, ma200: 0.07, forward_pe: 0.15,
-      peg: 0.15, price_fcf: 0.11, momentum: 0.08,
-      dcf_discount: 0.02, panic: 0.05, rsi_divergence: 0.08, apz: 0.08,
+      rsi: 0.11, ma20: 0.07, ma200: 0.06, forward_pe: 0.12,
+      peg: 0.12, price_fcf: 0.09, momentum: 0.07,
+      analyst_target: 0.08, panic: 0.05, rsi_divergence: 0.06, apz: 0.06,
+      williams: 0.06, adx: 0.05,
     },
   },
   holdings: [],
@@ -71,7 +72,9 @@ function makeHolding(overrides = {}) {
       ma20_daily: 65, ma20_weekly: 63, ma20_monthly: 62,
       ma200: 82, apz_daily: 55, apz_weekly: 52, apz_monthly: 50,
       forward_pe: 68, peg: 71, price_fcf: 65, momentum: 75,
-      dcf_discount: 55, panic: 60,
+      analyst_target: 80, panic: 60,
+      williams_intraday: 85, williams_daily: 83, williams_weekly: 80, williams_monthly: 78,
+      adx_intraday: 62, adx_daily: 60, adx_weekly: 58, adx_monthly: 55,
     },
     raw_data: {
       rsi_daily: 42.1, peg_ratio: 0.89, forward_pe: 28.4,
@@ -187,8 +190,40 @@ describe('Vernieuwen knop', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('toont de knoptekst "Vernieuwen"', async () => {
+  it('toont de knoptekst "Vernieuwen" in live modus', async () => {
     await renderApp(mockFetch(makeLiveResponse()));
+    expect(screen.getByRole('button', { name: /Vernieuwen/i })).toBeInTheDocument();
+  });
+
+  it('toont "Terug naar Live" in historische modus', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeLiveResponse()),
+    });
+    await renderApp(fetchMock);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Ophalen' })); });
+
+    expect(screen.getByRole('button', { name: /Terug naar Live/i })).toBeInTheDocument();
+  });
+
+  it('keert terug naar live modus na klikken op "Terug naar Live"', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeLiveResponse()),
+    });
+    await renderApp(fetchMock);
+
+    // Historische modus activeren
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Ophalen' })); });
+
+    // Terug naar live
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Terug naar Live/i })); });
+
     expect(screen.getByRole('button', { name: /Vernieuwen/i })).toBeInTheDocument();
   });
 });
@@ -330,16 +365,97 @@ describe('Detail tab — OHLCV sectie zichtbaarheid', () => {
     });
     await renderApp(fetchMock);
 
-    // Open de custom datepicker en selecteer vandaag
+    // Open de custom datepicker en selecteer vandaag → knop toont "Ophalen" (pending)
     await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
     await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
-    // Submit het historische formulier
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Historisch' })); });
+    // Knop staat nu op "Ophalen" omdat datum geselecteerd maar nog niet opgehaald is
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Ophalen' })); });
 
     // Controleer dat een historische fetch werd gedaan met een datum in YYYY-MM-DD formaat
     const historischCall = fetchMock.mock.calls.find(([url]) =>
       url.includes('/historical') && /date=\d{4}-\d{2}-\d{2}/.test(url)
     );
     expect(historischCall).toBeDefined();
+  });
+});
+
+// ─── TESTS: DATEPICKER KNOPSTATUS ─────────────────────────────────────────────
+
+describe('Historische datum — knopstatus', () => {
+  it('toont "Historisch" als er geen datum is geselecteerd', async () => {
+    await renderApp(mockFetch(makeLiveResponse()));
+    expect(screen.getByRole('button', { name: 'Historisch' })).toBeInTheDocument();
+  });
+
+  it('toont "Ophalen" zodra een datum is gekozen maar nog niet opgehaald', async () => {
+    await renderApp(mockFetch(makeLiveResponse()));
+
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+
+    expect(screen.getByRole('button', { name: 'Ophalen' })).toBeInTheDocument();
+  });
+
+  it('toont "Actief" nadat een historische datum is opgehaald', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeLiveResponse()),
+    });
+    await renderApp(fetchMock);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Ophalen' })); });
+
+    expect(screen.getByRole('button', { name: 'Actief' })).toBeInTheDocument();
+  });
+
+  it('toont "Ophalen" als een andere datum wordt gekozen terwijl al in historische modus', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeLiveResponse()),
+    });
+    await renderApp(fetchMock);
+
+    // Eerste datum ophalen → "Actief"
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Ophalen' })); });
+    expect(screen.getByRole('button', { name: 'Actief' })).toBeInTheDocument();
+
+    // Andere datum kiezen via vorige-maand navigatie → "Ophalen"
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+    await act(async () => { fireEvent.click(screen.getByTitle('Vorige maand')); });
+    // Klik op dag 1 van vorige maand
+    const dagKnoppen = screen.getAllByText('1').filter(el =>
+      el.style && el.style.fontFamily && el.style.fontFamily.includes('DM Mono')
+    );
+    if (dagKnoppen.length > 0) {
+      await act(async () => { fireEvent.click(dagKnoppen[0]); });
+      expect(screen.getByRole('button', { name: 'Ophalen' })).toBeInTheDocument();
+    }
+  });
+});
+
+// ─── TESTS: DATEPICKER TIMEZONE FIX ──────────────────────────────────────────
+
+describe('DatePicker — timezone correctheid', () => {
+  it('geeft de geselecteerde datum terug zonder UTC-verschuiving', async () => {
+    let onChangeCalls = [];
+    await renderApp(mockFetch(makeLiveResponse()));
+
+    // Open datepicker
+    await act(async () => { fireEvent.click(screen.getByTestId('date-picker-trigger')); });
+
+    // Klik op "Vandaag" — dit gebruikt lokale datum
+    const vandaag = new Date();
+    const verwacht = `${vandaag.getFullYear()}-${String(vandaag.getMonth() + 1).padStart(2, '0')}-${String(vandaag.getDate()).padStart(2, '0')}`;
+    await act(async () => { fireEvent.click(screen.getByText('Vandaag')); });
+
+    // Na selectie moet de displaywaarde overeenkomen met de lokale datum
+    const trigger = screen.getByTestId('date-picker-trigger');
+    const [dag, maand, jaar] = trigger.textContent.split('-');
+    const getoond = `${jaar}-${maand}-${dag}`;
+    expect(getoond).toBe(verwacht);
   });
 });

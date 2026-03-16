@@ -73,7 +73,18 @@ def mock_stock_data(ticker="TEST"):
         "peg_ratio": 0.9,
         "price_fcf": 18.0,
         "historical_avg_pfcf": 22.0,
-        "dcf_fair_value": 120.0,
+        "analyst_target": 120.0,
+        "n_analysts": 5,
+        # Williams %R per timeframe
+        "williams_daily": -65.0,
+        "williams_weekly": -70.0,
+        "williams_monthly": -60.0,
+        "williams_intraday": -72.0,
+        # ADX per timeframe
+        "adx_daily": 28.0,
+        "adx_weekly": 32.0,
+        "adx_monthly": 25.0,
+        "adx_intraday": 30.0,
     }
 
 
@@ -101,7 +112,7 @@ class TestScoreRsi:
         assert engine.score_rsi(75) == 10.0
 
     def test_none(self):
-        assert engine.score_rsi(None) == 50.0
+        assert engine.score_rsi(None) is None
 
 
 class TestScoreMa200:
@@ -118,7 +129,7 @@ class TestScoreMa200:
         assert engine.score_ma200(150, 100) == 10.0
 
     def test_geen_data(self):
-        assert engine.score_ma200(None, None) == 50.0
+        assert engine.score_ma200(None, None) is None
 
 
 class TestScorePeg:
@@ -141,10 +152,10 @@ class TestScorePeg:
         assert engine.score_peg(2.5) == 10.0
 
     def test_nul(self):
-        assert engine.score_peg(0) == 50.0
+        assert engine.score_peg(0) is None
 
     def test_negatief(self):
-        assert engine.score_peg(-1) == 50.0
+        assert engine.score_peg(-1) is None
 
 
 class TestScoreForwardPE:
@@ -164,7 +175,7 @@ class TestScoreForwardPE:
         assert engine.score_forward_pe(35, 25) == 15.0
 
     def test_geen_data(self):
-        assert engine.score_forward_pe(None, 25) == 50.0
+        assert engine.score_forward_pe(None, 25) is None
 
 
 class TestScorePanic:
@@ -183,7 +194,7 @@ class TestScorePanic:
         assert met_spike == min(100.0, base + 10.0)
 
     def test_geen_data(self):
-        assert engine.score_panic(None, None) == 50.0
+        assert engine.score_panic(None, None) is None
 
 
 class TestScoreRsiDivergence:
@@ -194,7 +205,68 @@ class TestScoreRsiDivergence:
         assert engine.score_rsi_divergence("BEARISH") == 20.0
 
     def test_neutraal(self):
-        assert engine.score_rsi_divergence("NEUTRAAL") == 50.0
+        assert engine.score_rsi_divergence("NEUTRAAL") is None
+
+    # Filterlogica: bearish onderdrukken bij oversold/negatief momentum
+    def test_bearish_onderdrukt_rsi_oversold(self):
+        # RSI < 40 → onderdrukken
+        assert engine.score_rsi_divergence("BEARISH", rsi_val=35.0, momentum=0.05) is None
+
+    def test_bearish_onderdrukt_momentum_negatief(self):
+        # Momentum < -10% → onderdrukken
+        assert engine.score_rsi_divergence("BEARISH", rsi_val=50.0, momentum=-0.15) is None
+
+    def test_bearish_onderdrukt_beide_condities(self):
+        # Beide condities (zoals april 2025 META-case) → onderdrukken
+        assert engine.score_rsi_divergence("BEARISH", rsi_val=36.0, momentum=-0.15) is None
+
+    def test_bearish_niet_onderdrukt_bij_top(self):
+        # RSI > 40 en momentum positief → bearish divergentie is geldig (waarschuwing bij top)
+        assert engine.score_rsi_divergence("BEARISH", rsi_val=65.0, momentum=0.05) == 20.0
+
+    def test_bullish_nooit_onderdrukt(self):
+        # Bullish divergentie wordt nooit onderdrukt, ook niet bij oversold RSI
+        assert engine.score_rsi_divergence("BULLISH", rsi_val=25.0, momentum=-0.20) == 85.0
+
+
+class TestCapitulatieAlert:
+    def test_alert_actief_alle_condities(self):
+        # RSI < 30, Williams < -90, bb_pct_b < 0.2 → alert True
+        data = mock_stock_data()
+        data["rsi_daily"]      = 25.0
+        data["williams_daily"] = -95.0
+        data["bb_pct_b"]       = 0.1
+        result = engine.calculate_score(data)
+        assert result["capitulatie_alert"] is True
+
+    def test_alert_niet_actief_rsi_te_hoog(self):
+        data = mock_stock_data()
+        data["rsi_daily"]      = 35.0   # boven drempel 30
+        data["williams_daily"] = -95.0
+        data["bb_pct_b"]       = 0.1
+        result = engine.calculate_score(data)
+        assert result["capitulatie_alert"] is False
+
+    def test_alert_niet_actief_williams_te_hoog(self):
+        data = mock_stock_data()
+        data["rsi_daily"]      = 25.0
+        data["williams_daily"] = -80.0   # boven drempel -90
+        data["bb_pct_b"]       = 0.1
+        result = engine.calculate_score(data)
+        assert result["capitulatie_alert"] is False
+
+    def test_alert_niet_actief_bb_te_hoog(self):
+        data = mock_stock_data()
+        data["rsi_daily"]      = 25.0
+        data["williams_daily"] = -95.0
+        data["bb_pct_b"]       = 0.3    # boven drempel 0.2
+        result = engine.calculate_score(data)
+        assert result["capitulatie_alert"] is False
+
+    def test_alert_niet_actief_normaal_scenario(self):
+        # Standaard mock data → geen alert
+        result = engine.calculate_score(mock_stock_data())
+        assert result["capitulatie_alert"] is False
 
 
 class TestScoreApz:
@@ -272,7 +344,7 @@ class TestCalculateScore:
         assert "apz_intraday" in scores
 
     def test_intraday_none_valt_terug_op_neutraal(self):
-        """Als intraday data ontbreekt, moeten scores op neutraal (50) vallen."""
+        """Als intraday data ontbreekt, worden die indicatoren uitgesloten (None) en herverdeeld."""
         data = mock_stock_data()
         data["rsi_intraday"] = None
         data["ma20_intraday"] = None
@@ -534,7 +606,16 @@ def mock_stock_data_historisch(ticker="TEST"):
         "peg_ratio":             None,
         "price_fcf":             None,
         "historical_avg_pfcf":   None,
-        "dcf_fair_value":        None,
+        "analyst_target":        None,
+        "n_analysts":            0,
+        "williams_daily":        None,
+        "williams_weekly":       None,
+        "williams_monthly":      None,
+        "williams_intraday":     None,
+        "adx_daily":             None,
+        "adx_weekly":            None,
+        "adx_monthly":           None,
+        "adx_intraday":          None,
         "rsi_intraday":          None,
         "ma20_intraday":         None,
         "apz_upper_intraday":    None,
@@ -582,7 +663,7 @@ class TestFetchStockDataHistorisch:
         assert result["forward_pe"] is None
         assert result["peg_ratio"] is None
         assert result["price_fcf"] is None
-        assert result["dcf_fair_value"] is None
+        assert result["analyst_target"] is None
 
     def test_technische_indicatoren_aanwezig_bij_historische_datum(self):
         with patch.object(engine, "_fmp_get") as mock_fmp:
@@ -631,24 +712,22 @@ class TestCalculateScoreZonderFundamentals:
         assert "rsi_daily" in scores
         assert "ma200" in scores
         assert "forward_pe" in scores
-        assert scores["forward_pe"] == 50.0
+        assert scores["forward_pe"] is None  # Geen data = uitgesloten, niet neutraal
 
-    def test_peg_score_neutraal_zonder_data(self):
+    def test_peg_score_none_zonder_data(self):
         result = engine.calculate_score(mock_stock_data_historisch())
-        assert result["indicator_scores"]["peg"] == 50.0
+        assert result["indicator_scores"]["peg"] is None  # Geen data = uitgesloten
 
     def test_raw_data_bevat_fundamentals_unavailable(self):
         result = engine.calculate_score(mock_stock_data_historisch())
         assert result["raw_data"]["fundamentals_unavailable"] is True
 
     def test_intraday_score_berekend_zonder_intraday_data(self):
-        """Zonder intraday RSI/MA/APZ data moeten die indicatoren neutraal (50) terugvallen,
-        maar gedeelde indicatoren (Bollinger, momentum) geven nog steeds een waarde."""
+        """Zonder intraday RSI/MA/APZ worden die indicatoren uitgesloten (None).
+        Gedeelde indicatoren (Bollinger, momentum, MA200) berekenen nog steeds een score."""
         result = engine.calculate_score(mock_stock_data_historisch())
         score = result["scores_by_timeframe"]["intraday"]
         assert 0 <= score <= 100
-        # RSI-intraday en MA20-intraday vallen terug op 50 → score kan niet erg afwijken
-        assert 40 <= score <= 65
 
 
 class TestHistorischEndpoint:

@@ -127,7 +127,7 @@ function RawDataCard({ holding }) {
 
 // Indicator scores lijst met voortgangsbalkjes en tooltips
 function IndicatorScores({ holding, isHistoricalMode }) {
-  const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "dcf_discount"]);
+  const FUNDAMENTALS = new Set(["forward_pe", "peg", "price_fcf", "analyst_target"]);
 
   return (
     <div style={{ background: "#0D1321", border: "1px solid #1E2D45", borderRadius: 12, padding: 20 }}>
@@ -141,24 +141,39 @@ function IndicatorScores({ holding, isHistoricalMode }) {
         // Fundamentals ontbreken in historische modus (altijd) of voor niet-US aandelen (forward_pe null)
         const noFundamentalsHistorical = holding.raw_data?.fundamentals_unavailable && FUNDAMENTALS.has(key);
         const noFundamentalsNonUS      = !isHistoricalMode && FUNDAMENTALS.has(key) && holding.raw_data?.forward_pe == null;
-        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS;
+        // Elke null-score = geen data beschikbaar (williams_weekly, adx_monthly, analyst_target zonder data, etc.)
+        const unavailable = noFundamentalsHistorical || noFundamentalsNonUS || val == null;
+
+        // Intraday-indicatoren in historische modus verbergen (nooit beschikbaar)
+        if (unavailable && isHistoricalMode && key.includes("intraday")) return null;
+
+        // Indicatoren met hide:true nooit tonen (API ondersteunt dit timeframe niet)
+        if (unavailable && interp?.hide) return null;
 
         if (unavailable) {
-          const reason = isHistoricalMode
-            ? "Niet beschikbaar in historische modus"
-            : "Geen fundamentals data (niet-US)";
+          // Toon de juiste reden afhankelijk van context
+          const displayDesc = noFundamentalsHistorical
+            ? `${indLabel} — niet beschikbaar in historische modus`
+            : desc;
           return (
             <div key={key} style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8 }}>
-                <IndicatorTooltip tooltip={tooltip}>
-                  <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5, cursor: tooltip ? "help" : "default" }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
-                    {indLabel}
-                    {tooltip && <span style={{ fontSize: 9, color: "#475569" }}>ⓘ</span>}
-                  </span>
-                </IndicatorTooltip>
-                <span style={{ fontSize: 10, color: "#92400E", fontStyle: "italic", flexShrink: 0, background: "#451A0320", padding: "2px 8px", borderRadius: 4, border: "1px solid #92400E44" }}>
-                  {reason}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 8 }}>
+                <div>
+                  <IndicatorTooltip tooltip={tooltip}>
+                    <span style={{ fontSize: 11, color: "#64748B", display: "inline-flex", alignItems: "center", gap: 5, cursor: tooltip ? "help" : "default" }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#334155", flexShrink: 0, display: "inline-block" }} />
+                      {indLabel}
+                      {tooltip && <span style={{ fontSize: 9, color: "#475569" }}>ⓘ</span>}
+                    </span>
+                  </IndicatorTooltip>
+                  {displayDesc && (
+                    <div style={{ fontSize: 9.5, color: "#475569", marginTop: 2, marginLeft: 11, fontStyle: "italic", lineHeight: 1.4 }}>
+                      {displayDesc}
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: 9, color: "#64748B", flexShrink: 0, background: "#1E2D4580", padding: "2px 6px", borderRadius: 4, border: "1px solid #334155", whiteSpace: "nowrap", marginTop: 1 }}>
+                  niet meegeteld
                 </span>
               </div>
               <div style={{ height: 5, borderRadius: 3, background: "#1E2D45" }} />
@@ -243,7 +258,16 @@ export default function HoldingDetail({ holding, isHistoricalMode }) {
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'DM Mono'" }}>{fmt(holding.current_price, holding.currency)}</div>
-                <span className="badge" style={{ background: signalColor(holding.signal)+"20", color: signalColor(holding.signal), border: `1px solid ${signalColor(holding.signal)}44`, marginTop: 4 }}>{holding.signal}</span>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 4 }}>
+                  <span className="badge" style={{ background: signalColor(holding.signal)+"20", color: signalColor(holding.signal), border: `1px solid ${signalColor(holding.signal)}44` }}>{holding.signal}</span>
+                  {holding.capitulatie_alert && (
+                    <IndicatorTooltip direction="down" align="right" tooltip="RSI dagelijks onder 30, Williams %R onder −90 én Paniek Indicator in oversold zone — drie kortetermijn indicatoren signaleren tegelijk extreme kapitulatie. De hoofdscore weerspiegelt dit mogelijk niet volledig door langetermijn overbought condities. Mogelijke kortetermijn koopkans.">
+                      <span className="badge" style={{ background: "#22C55E22", color: "#22C55E", border: "1px solid #22C55E44", cursor: "help" }}>
+                        ⚡ KAPITULATIE
+                      </span>
+                    </IndicatorTooltip>
+                  )}
+                </div>
               </div>
             </div>
             {holding.raw_data?.ohlc_day && (

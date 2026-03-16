@@ -69,18 +69,21 @@ TIMEFRAME_WEIGHTS = {
 }
 
 INDICATOR_WEIGHTS = {
-    "rsi":             0.13,
-    "ma20":            0.08,
-    "ma200":           0.07,
-    "forward_pe":      0.15,
-    "peg":             0.15,
-    "price_fcf":       0.11,
-    "momentum":        0.08,
-    "dcf_discount":    0.02,
-    "panic":           0.05,
-    "rsi_divergence":  0.08,
-    "apz":             0.08,
+    "rsi":              0.11,
+    "ma20":             0.07,
+    "ma200":            0.06,
+    "forward_pe":       0.12,
+    "peg":              0.12,
+    "price_fcf":        0.09,
+    "momentum":         0.07,
+    "analyst_target":   0.08,  # vervangt dcf_discount (0.02)
+    "panic":            0.05,
+    "rsi_divergence":   0.06,
+    "apz":              0.06,
+    "williams":         0.06,  # Williams %R via API
+    "adx":              0.05,  # ADX trendsterkte via API
 }
+# som = 1.00
 
 # Weergavenamen en tooltips per indicator (voor frontend)
 INDICATOR_META = {
@@ -91,8 +94,9 @@ INDICATOR_META = {
     },
     "rsi_divergence": {
         "label":   "RSI Divergentie",
-        "tooltip": "Vergelijkt koersbodems met RSI-bodems. Als de koers een nieuwe bodem maakt maar de RSI niet "
-                   "(bullish divergentie), is dat een signaal dat de verkoopdruk afneemt — mogelijke ommekeer omhoog.",
+        "tooltip": "Detecteert echte swing-lows en swing-highs in koers én RSI over de laatste 30 perioden. "
+                   "Bullish divergentie: koers maakt lagere bodem maar RSI hogere bodem → verkoopdruk neemt af, mogelijke ommekeer omhoog. "
+                   "Bearish divergentie: koers maakt hogere top maar RSI lagere top → koopdruk neemt af.",
     },
     "ma20": {
         "label":   "MA20",
@@ -128,13 +132,29 @@ INDICATOR_META = {
     },
     "momentum": {
         "label":   "Momentum",
-        "tooltip": "Hoe sterk het aandeel de afgelopen maand presteerde ten opzichte van de sector. "
-                   "Positief momentum betekent dat beleggers meer vertrouwen tonen dan in vergelijkbare bedrijven.",
+        "tooltip": "Gewogen rendement over 1, 3 en 6 maanden (30%/40%/30%) t.o.v. de sector. "
+                   "Positief momentum betekent dat beleggers meer vertrouwen tonen dan in vergelijkbare bedrijven. "
+                   "Multi-timeframe gewogen voor betere signaalstabiliteit.",
     },
-    "dcf_discount": {
-        "label":   "DCF Korting",
-        "tooltip": "Schatting van de 'echte waarde' op basis van toekomstige kasstromen (Discounted Cash Flow). "
-                   "Een grote korting (koers ver onder berekende waarde) suggereert dat het aandeel ondergewaardeerd is.",
+    "analyst_target": {
+        "label":   "Analistendoelstelling",
+        "tooltip": "Het mediane koersdoel van analisten t.o.v. de huidige koers. "
+                   "Hoge upside = analisten zien het aandeel als ondergewaardeerd. "
+                   "Alleen beschikbaar voor US-genoteerde aandelen.",
+    },
+    "williams": {
+        "label":   "Williams %R",
+        "tooltip": "Williams %R meet hoe de huidige slotkoers zich verhoudt tot de hoogste koers van de afgelopen 14 perioden. "
+                   "-100 = koers staat op het laagste punt (oversold, koopkans). "
+                   "0 = koers staat op het hoogste punt (overbought, verkoopkans). "
+                   "Alleen beschikbaar voor US- en Canada-genoteerde aandelen.",
+    },
+    "adx": {
+        "label":   "ADX",
+        "tooltip": "De Average Directional Index meet de sterkte van een trend, ongeacht de richting. "
+                   "Boven 25 = duidelijke trend aanwezig (combineer met RSI voor richting). "
+                   "Onder 20 = markt beweegt zijwaarts. "
+                   "Alleen beschikbaar voor US- en Canada-genoteerde aandelen.",
     },
     "panic": {
         "label":   "Paniek Indicator",
@@ -290,26 +310,38 @@ def calc_apz(series: pd.Series, period: int = 20):
     return _r(ema.iloc[-1]), _r((ema + 2 * mad).iloc[-1]), _r((ema - 2 * mad).iloc[-1])
 
 
-def calc_rsi_divergence(close_s: pd.Series, rsi_s: pd.Series, lookback: int = 14) -> str:
-    """Detecteer bullish/bearish RSI-divergentie over de laatste `lookback` perioden.
-    Bullish  = koers maakt lagere bodem, RSI hogere bodem.
-    Bearish  = koers maakt hogere top,  RSI lagere top."""
+def calc_rsi_divergence(close_s: pd.Series, rsi_s: pd.Series, lookback: int = 30) -> str:
+    """Detecteer divergentie via echte swing-lows/-highs (lokale extremen).
+    Bullish  = koers maakt lagere bodem, RSI hogere bodem (koopkans).
+    Bearish  = koers maakt hogere top,  RSI lagere top (verkoopkans)."""
     rsi_clean = rsi_s.dropna()
     if len(close_s) < lookback or len(rsi_clean) < lookback:
         return "NEUTRAAL"
+
     close = close_s.values[-lookback:]
     rsi   = rsi_clean.values[-lookback:]
-    half  = lookback // 2
 
-    lo1 = int(np.argmin(close[:half]))
-    lo2 = int(np.argmin(close[half:]))
-    if close[half + lo2] < close[lo1] and rsi[half + lo2] > rsi[lo1]:
-        return "BULLISH"
+    def swing_lows(arr, margin=2):
+        return [i for i in range(margin, len(arr) - margin)
+                if arr[i] == min(arr[i-margin:i+margin+1])]
 
-    hi1 = int(np.argmax(close[:half]))
-    hi2 = int(np.argmax(close[half:]))
-    if close[half + hi2] > close[hi1] and rsi[half + hi2] < rsi[hi1]:
-        return "BEARISH"
+    def swing_highs(arr, margin=2):
+        return [i for i in range(margin, len(arr) - margin)
+                if arr[i] == max(arr[i-margin:i+margin+1])]
+
+    price_lows, rsi_lows = swing_lows(close), swing_lows(rsi)
+    if len(price_lows) >= 2 and len(rsi_lows) >= 2:
+        p1, p2 = price_lows[-2], price_lows[-1]
+        r1, r2 = rsi_lows[-2], rsi_lows[-1]
+        if close[p2] < close[p1] and rsi[r2] > rsi[r1]:
+            return "BULLISH"
+
+    price_highs, rsi_highs = swing_highs(close), swing_highs(rsi)
+    if len(price_highs) >= 2 and len(rsi_highs) >= 2:
+        p1, p2 = price_highs[-2], price_highs[-1]
+        r1, r2 = rsi_highs[-2], rsi_highs[-1]
+        if close[p2] > close[p1] and rsi[r2] < rsi[r1]:
+            return "BEARISH"
 
     return "NEUTRAAL"
 
@@ -323,12 +355,42 @@ def _calc_rsi_local(series: pd.Series, period: int = 14) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
+def _calc_williams_local(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Bereken Williams %R lokaal: schaal -100 (oversold) tot 0 (overbought)."""
+    highest_high = high.rolling(period).max()
+    lowest_low   = low.rolling(period).min()
+    wr = (highest_high - close) / (highest_high - lowest_low) * -100
+    return wr
+
+
+def _calc_adx_local(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Bereken ADX lokaal: maat voor trendsterkte (niet richting), 0–100."""
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low  - close.shift(1)).abs()
+    tr  = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    dm_plus  = high - high.shift(1)
+    dm_minus = low.shift(1) - low
+    dm_plus  = dm_plus.where((dm_plus  > dm_minus) & (dm_plus  > 0), 0.0)
+    dm_minus = dm_minus.where((dm_minus > dm_plus)  & (dm_minus > 0), 0.0)
+
+    alpha = 1 / period
+    atr      = tr.ewm(alpha=alpha, adjust=False).mean()
+    di_plus  = 100 * dm_plus.ewm(alpha=alpha,  adjust=False).mean() / atr
+    di_minus = 100 * dm_minus.ewm(alpha=alpha, adjust=False).mean() / atr
+
+    dx  = 100 * (di_plus - di_minus).abs() / (di_plus + di_minus).replace(0, float("nan"))
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    return adx
+
+
 # ─────────────────────────────────────────────
 # SCORE FUNCTIES
 # ─────────────────────────────────────────────
 
-def score_rsi(rsi: float) -> float:
-    if rsi is None: return 50.0
+def score_rsi(rsi: float) -> Optional[float]:
+    if rsi is None: return None
     if rsi < 20:    return 100.0
     if rsi < 30:    return 90.0
     if rsi < 45:    return 70.0
@@ -336,8 +398,8 @@ def score_rsi(rsi: float) -> float:
     if rsi < 70:    return 30.0
     return 10.0
 
-def score_ma200(price: float, ma200: float) -> float:
-    if not price or not ma200: return 50.0
+def score_ma200(price: float, ma200: float) -> Optional[float]:
+    if not price or not ma200: return None
     pct = (price - ma200) / ma200 * 100
     if pct < -10:  return 100.0
     if pct < 0:    return 80.0
@@ -346,8 +408,8 @@ def score_ma200(price: float, ma200: float) -> float:
     if pct < 30:   return 35.0
     return 10.0
 
-def score_forward_pe(fpe: float, hist_pe: float) -> float:
-    if not fpe or not hist_pe: return 50.0
+def score_forward_pe(fpe: float, hist_pe: float) -> Optional[float]:
+    if not fpe or not hist_pe: return None
     r = fpe / hist_pe
     if r < 0.7:  return 100.0
     if r < 0.9:  return 75.0
@@ -356,8 +418,8 @@ def score_forward_pe(fpe: float, hist_pe: float) -> float:
     if r < 1.3:  return 35.0
     return 15.0
 
-def score_peg(peg: float) -> float:
-    if not peg or peg <= 0: return 50.0
+def score_peg(peg: float) -> Optional[float]:
+    if not peg or peg <= 0: return None
     if peg < 0.5:  return 100.0
     if peg < 0.75: return 85.0
     if peg < 1.0:  return 75.0
@@ -365,8 +427,8 @@ def score_peg(peg: float) -> float:
     if peg < 2.0:  return 35.0
     return 10.0
 
-def score_price_fcf(pfcf: float, hist: float) -> float:
-    if not pfcf or not hist: return 50.0
+def score_price_fcf(pfcf: float, hist: float) -> Optional[float]:
+    if not pfcf or not hist: return None
     r = pfcf / hist
     if r < 0.7:  return 100.0
     if r < 0.9:  return 75.0
@@ -374,8 +436,8 @@ def score_price_fcf(pfcf: float, hist: float) -> float:
     if r < 1.2:  return 45.0
     return 20.0
 
-def score_momentum(ret: float, sector_ret: float) -> float:
-    if ret is None: return 50.0
+def score_momentum(ret: float, sector_ret: float) -> Optional[float]:
+    if ret is None: return None
     rel = ret - (sector_ret or 0)
     if rel > 10:   return 90.0
     if rel > 5:    return 75.0
@@ -384,19 +446,9 @@ def score_momentum(ret: float, sector_ret: float) -> float:
     if rel > -10:  return 30.0
     return 15.0
 
-def score_dcf(price: float, fv: float) -> float:
-    if not price or not fv: return 50.0
-    disc = (fv - price) / fv * 100
-    if disc > 30:  return 100.0
-    if disc > 20:  return 85.0
-    if disc > 10:  return 65.0
-    if disc > 0:   return 55.0
-    if disc > -10: return 40.0
-    return 15.0
-
-def score_ma20(price: float, ma20: float) -> float:
+def score_ma20(price: float, ma20: float) -> Optional[float]:
     """Hoe ver staat prijs onder/boven MA20? Onder = koopkans."""
-    if not price or not ma20: return 50.0
+    if not price or not ma20: return None
     pct = (price - ma20) / ma20 * 100
     if pct < -10:  return 100.0
     if pct < -5:   return 85.0
@@ -405,9 +457,9 @@ def score_ma20(price: float, ma20: float) -> float:
     if pct < 10:   return 40.0
     return 25.0
 
-def score_panic(bb_pct_b: float, vol_spike: float) -> float:
+def score_panic(bb_pct_b: float, vol_spike: float) -> Optional[float]:
     """Paniekdetector op basis van Bollinger Band %B + volume spike."""
-    if bb_pct_b is None: return 50.0
+    if bb_pct_b is None: return None
     if bb_pct_b < 0:     s = 95.0
     elif bb_pct_b < 0.2: s = 80.0
     elif bb_pct_b < 0.4: s = 62.0
@@ -418,10 +470,45 @@ def score_panic(bb_pct_b: float, vol_spike: float) -> float:
         s = min(100.0, s + 10.0)
     return s
 
-def score_rsi_divergence(div: str) -> float:
+def score_rsi_divergence(div: str, rsi_val=None, momentum=None) -> Optional[float]:
     if div == "BULLISH": return 85.0
-    if div == "BEARISH": return 20.0
-    return 50.0
+    if div == "BEARISH":
+        # Onderdruk bearish signaal als RSI al oversold of momentum al sterk negatief:
+        # bearish divergentie is alleen zinvol bij toppen, niet bij al ingezette dalingen
+        if (rsi_val is not None and rsi_val < 40) or (momentum is not None and momentum < -0.10):
+            return None
+        return 20.0
+    return None  # Geen divergentie = geen signaal, niet meetellen
+
+def score_williams(w) -> Optional[float]:
+    """Williams %R: schaal -100 (oversold) tot 0 (overbought). None = niet beschikbaar."""
+    if w is None: return None
+    if w < -90:  return 95.0
+    if w < -80:  return 80.0
+    if w < -50:  return 60.0
+    if w < -20:  return 40.0
+    if w < -10:  return 25.0
+    return 15.0
+
+def score_adx(adx) -> Optional[float]:
+    """ADX meet trendsterkte (niet richting). >25 = trend aanwezig. None = niet beschikbaar."""
+    if adx is None: return None
+    if adx > 50:  return 75.0
+    if adx > 25:  return 60.0
+    if adx > 15:  return 50.0
+    return 40.0
+
+def score_analyst_target(price: float, target, n_analysts: int = 0) -> Optional[float]:
+    """Scoort op basis van upside naar analistenconsensus koersdoel. None = niet beschikbaar."""
+    if not price or not target or target <= 0: return None
+    if n_analysts < 2: return None
+    upside = (target - price) / price * 100
+    if upside > 25:  return 100.0
+    if upside > 15:  return 85.0
+    if upside > 5:   return 70.0
+    if upside > 0:   return 55.0
+    if upside > -10: return 35.0
+    return 15.0
 
 def score_apz(price: float, apz_lower: float, apz_upper: float) -> float:
     if not price or apz_lower is None or apz_upper is None: return 50.0
@@ -468,7 +555,7 @@ def _interp_ma(price, ma, name: str) -> dict:
     return               _interp("OVERBOUGHT", f"{name} +{pct}% boven MA — overbought",           pct)
 
 def _interp_forward_pe(fpe, hist_pe) -> dict:
-    if not fpe or not hist_pe: return _interp("NEUTRAAL", "Fwd P/E — geen data", None)
+    if not fpe or not hist_pe: return _interp("NEUTRAAL", "Fwd P/E — geen data (alleen beschikbaar voor US-aandelen)", None)
     r = fpe / hist_pe
     if r < 0.7:  return _interp("OVERSOLD",   f"Fwd P/E {fpe} — sterk onder historisch gemiddelde", fpe)
     if r < 0.9:  return _interp("DICHTBIJ",   f"Fwd P/E {fpe} — licht ondergewaardeerd",             fpe)
@@ -477,7 +564,7 @@ def _interp_forward_pe(fpe, hist_pe) -> dict:
     return              _interp("OVERBOUGHT", f"Fwd P/E {fpe} — duur t.o.v. historisch",             fpe)
 
 def _interp_peg(peg) -> dict:
-    if not peg or peg <= 0: return _interp("NEUTRAAL", "PEG — geen data", None)
+    if not peg or peg <= 0: return _interp("NEUTRAAL", "PEG — geen data (alleen beschikbaar voor US-aandelen)", None)
     if peg < 0.5:  return _interp("OVERSOLD",   f"PEG {peg} — groei niet ingeprijsd, koopkans",  peg)
     if peg < 1.0:  return _interp("DICHTBIJ",   f"PEG {peg} — redelijk gewaardeerd",              peg)
     if peg < 1.5:  return _interp("NEUTRAAL",   f"PEG {peg} — fair value",                        peg)
@@ -485,7 +572,7 @@ def _interp_peg(peg) -> dict:
     return                _interp("OVERBOUGHT", f"PEG {peg} — overgewaardeerd",                   peg)
 
 def _interp_price_fcf(pfcf, hist) -> dict:
-    if not pfcf or not hist: return _interp("NEUTRAAL", "P/FCF — geen data", None)
+    if not pfcf or not hist: return _interp("NEUTRAAL", "P/FCF — geen data (alleen beschikbaar voor US-aandelen)", None)
     r = pfcf / hist
     if r < 0.7:  return _interp("OVERSOLD",   f"P/FCF {pfcf} — sterk goedkoop t.o.v. historisch", pfcf)
     if r < 0.9:  return _interp("DICHTBIJ",   f"P/FCF {pfcf} — licht goedkoop",                    pfcf)
@@ -493,22 +580,14 @@ def _interp_price_fcf(pfcf, hist) -> dict:
     return              _interp("OVERBOUGHT", f"P/FCF {pfcf} — duurder dan historisch",             pfcf)
 
 def _interp_momentum(mom, sector_ret) -> dict:
-    if mom is None: return _interp("NEUTRAAL", "Momentum — geen data", None)
+    if mom is None: return _interp("NEUTRAAL", "Momentum — geen data (sectorvergelijking niet beschikbaar)", None)
     rel = round(mom - (sector_ret or 0), 1)
-    if rel > 10:   return _interp("BULLISH",  f"Momentum +{rel}% vs sector — sterk positief",  rel)
-    if rel > 5:    return _interp("BULLISH",  f"Momentum +{rel}% vs sector — positief",         rel)
-    if rel > 0:    return _interp("DICHTBIJ", f"Momentum +{rel}% vs sector — licht positief",   rel)
-    if rel > -5:   return _interp("NEUTRAAL", f"Momentum {rel}% vs sector — licht negatief",    rel)
-    if rel > -10:  return _interp("BEARISH",  f"Momentum {rel}% vs sector — negatief",          rel)
-    return                _interp("BEARISH",  f"Momentum {rel}% vs sector — sterk negatief",    rel)
-
-def _interp_dcf(price, fv) -> dict:
-    if not price or not fv: return _interp("NEUTRAAL", "DCF — geen data", None)
-    disc = round((fv - price) / fv * 100, 1)
-    if disc > 30:  return _interp("OVERSOLD",   f"DCF korting {disc}% — sterk ondergewaardeerd", disc)
-    if disc > 10:  return _interp("DICHTBIJ",   f"DCF korting {disc}% — licht ondergewaardeerd",  disc)
-    if disc > 0:   return _interp("NEUTRAAL",   f"DCF korting {disc}% — nabij fair value",         disc)
-    return                _interp("OVERBOUGHT", f"DCF {abs(disc)}% boven fair value",              disc)
+    if rel > 10:   return _interp("BULLISH",  f"Momentum (gew. 1M/3M/6M) +{rel}% vs sector — sterk positief",  rel)
+    if rel > 5:    return _interp("BULLISH",  f"Momentum (gew. 1M/3M/6M) +{rel}% vs sector — positief",         rel)
+    if rel > 0:    return _interp("DICHTBIJ", f"Momentum (gew. 1M/3M/6M) +{rel}% vs sector — licht positief",   rel)
+    if rel > -5:   return _interp("NEUTRAAL", f"Momentum (gew. 1M/3M/6M) {rel}% vs sector — licht negatief",    rel)
+    if rel > -10:  return _interp("BEARISH",  f"Momentum (gew. 1M/3M/6M) {rel}% vs sector — negatief",          rel)
+    return                _interp("BEARISH",  f"Momentum (gew. 1M/3M/6M) {rel}% vs sector — sterk negatief",    rel)
 
 def _interp_panic(bb_pct_b, vol_spike) -> dict:
     if bb_pct_b is None: return _interp("NEUTRAAL", "Paniek — geen data", None)
@@ -521,10 +600,50 @@ def _interp_panic(bb_pct_b, vol_spike) -> dict:
     if bb_pct_b < 0.8:  return _interp("DICHTBIJ",   f"BB %B {v} — licht overbought",                    v)
     return                      _interp("OVERBOUGHT", f"BB %B {v}{vol_txt} — overbought zone",            v)
 
-def _interp_divergence(div: str, tf: str) -> dict:
-    if div == "BULLISH": return _interp("BULLISH",  f"RSI divergentie {tf} — bullish (koers daalt, RSI stijgt)", div)
-    if div == "BEARISH": return _interp("BEARISH",  f"RSI divergentie {tf} — bearish (koers stijgt, RSI daalt)", div)
-    return                       _interp("NEUTRAAL", f"RSI divergentie {tf} — geen divergentie",                  div)
+def _interp_divergence(div: str, tf: str, rsi_val=None, momentum=None) -> dict:
+    if div == "BULLISH": return _interp("BULLISH", f"RSI divergentie {tf} — bullish (koers daalt, RSI stijgt)", div)
+    if div == "BEARISH":
+        # Toon reden van onderdrukking als de score-filter ook aanslaat
+        onderdrukt = (rsi_val is not None and rsi_val < 40) or (momentum is not None and momentum < -0.10)
+        if onderdrukt:
+            redenen = []
+            if rsi_val is not None and rsi_val < 40:
+                redenen.append(f"RSI {round(rsi_val, 1)} oversold")
+            if momentum is not None and momentum < -0.10:
+                redenen.append(f"momentum {round(momentum * 100, 1)}%")
+            reden_txt = " / ".join(redenen)
+            return _interp("BEARISH", f"RSI divergentie {tf} — bearish onderdrukt ({reden_txt})", div)
+        return _interp("BEARISH", f"RSI divergentie {tf} — bearish (koers stijgt, RSI daalt)", div)
+    return {**_interp("NEUTRAAL", f"RSI divergentie {tf} — geen divergentie", div), "hide": True}
+
+def _interp_williams(w, tf: str) -> dict:
+    if w is None: return {**_interp("NEUTRAAL", f"Williams %R {tf} — niet beschikbaar", None), "hide": True}
+    v = round(w, 1)
+    if w < -90:  return _interp("OVERSOLD",   f"Williams %R {tf} {v} — extreem oversold (koopkans)", v)
+    if w < -80:  return _interp("OVERSOLD",   f"Williams %R {tf} {v} — oversold",                     v)
+    if w < -50:  return _interp("DICHTBIJ",   f"Williams %R {tf} {v} — licht oversold",               v)
+    if w < -20:  return _interp("NEUTRAAL",   f"Williams %R {tf} {v} — neutraal",                     v)
+    if w < -10:  return _interp("DICHTBIJ",   f"Williams %R {tf} {v} — licht overbought",             v)
+    return               _interp("OVERBOUGHT", f"Williams %R {tf} {v} — extreem overbought",          v)
+
+def _interp_adx(adx, tf: str) -> dict:
+    if adx is None: return {**_interp("NEUTRAAL", f"ADX {tf} — niet beschikbaar", None), "hide": True}
+    v = round(adx, 1)
+    if adx > 50:  return _interp("BULLISH",  f"ADX {tf} {v} — zeer sterke trend aanwezig", v)
+    if adx > 25:  return _interp("DICHTBIJ", f"ADX {tf} {v} — trend aanwezig",              v)
+    if adx > 15:  return _interp("NEUTRAAL", f"ADX {tf} {v} — zwakke trend / zijwaarts",    v)
+    return               _interp("NEUTRAAL", f"ADX {tf} {v} — geen duidelijke trend",       v)
+
+def _interp_analyst_target(price, target, n_analysts: int) -> dict:
+    if not target or not price: return {**_interp("NEUTRAAL", "Koersdoel — geen data", None), "hide": True}
+    if n_analysts < 2:          return {**_interp("NEUTRAAL", f"Koersdoel — te weinig analisten ({n_analysts})", None), "hide": True}
+    upside = round((target - price) / price * 100, 1)
+    if upside > 25:   return _interp("OVERSOLD",   f"Koersdoel {target:.0f} — {upside}% upside (sterk ondergewaardeerd)", upside)
+    if upside > 15:   return _interp("DICHTBIJ",   f"Koersdoel {target:.0f} — {upside}% upside",                          upside)
+    if upside > 5:    return _interp("DICHTBIJ",   f"Koersdoel {target:.0f} — {upside}% upside (licht ondergewaardeerd)", upside)
+    if upside > 0:    return _interp("NEUTRAAL",   f"Koersdoel {target:.0f} — {upside}% upside (nabij fair value)",       upside)
+    if upside > -10:  return _interp("DICHTBIJ",   f"Koersdoel {target:.0f} — {upside}% (licht overgewaardeerd)",        upside)
+    return                   _interp("OVERBOUGHT", f"Koersdoel {target:.0f} — {upside}% (sterk overgewaardeerd)",        upside)
 
 def _interp_apz(price, apz_lo, apz_up, tf: str) -> dict:
     if apz_lo is None or apz_up is None or price is None:
@@ -596,20 +715,28 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "volume":    last_raw.get("volume"),
         }
 
-        # ── 3. Ratio's TTM (P/E, PEG, P/FCF) ─────────────────────
+        # ── 3. Ratio's TTM (P/E, PEG, P/FCF) + Analyst Price Target ──
         if not historical_mode:
             ratios_data = _fmp_get("/ratios-ttm", {"symbol": ticker})
             ratios = ratios_data[0] if ratios_data and isinstance(ratios_data, list) else {}
+            # Analyst consensus price target (US-aandelen only)
+            target_data = _fmp_get("/price-target-summary", {"symbol": ticker})
+            analyst_target = None
+            n_analysts = 0
+            if target_data and isinstance(target_data, list) and len(target_data) > 0:
+                t = target_data[0]
+                analyst_target = t.get("targetMedian") or t.get("targetConsensus")
+                n_analysts = int(t.get("numberOfAnalysts") or 0)
         else:
             ratios = {}
+            analyst_target = None
+            n_analysts = 0
 
         tpe      = ratios.get("priceToEarningsRatioTTM")
         peg      = ratios.get("priceToEarningsGrowthRatioTTM")
         pfcf     = ratios.get("priceToFreeCashFlowRatioTTM")
-        fcf_ps_r = ratios.get("freeCashFlowPerShareTTM")
 
-        fpe    = tpe
-        dcf_fv = float(fcf_ps_r) * 25 if fcf_ps_r else None
+        fpe       = tpe
         hist_pe   = tpe * 0.95 if tpe else None
         hist_pfcf = pfcf * 1.05 if pfcf else None
 
@@ -709,11 +836,65 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
         bb_width = float((bb_mid + 2 * bb_std) - (bb_mid - 2 * bb_std))
         bb_pct_b = float((price - (bb_mid - 2 * bb_std)) / bb_width) if bb_width > 0 else None
 
-        # ── 11. Momentum (1 maand vs sector) ────────────────────
-        p1m = hist["Close"].iloc[-22] if len(hist) >= 22 else hist["Close"].iloc[0]
-        mom = ((price - float(p1m)) / float(p1m)) * 100
+        # ── 11. Momentum gewogen 1M/3M/6M vs sector ─────────────
+        n = len(hist)
+        mom_1m = ((price - float(hist["Close"].iloc[-22]))  / float(hist["Close"].iloc[-22])  * 100) if n > 22  else None
+        mom_3m = ((price - float(hist["Close"].iloc[-66]))  / float(hist["Close"].iloc[-66])  * 100) if n > 66  else None
+        mom_6m = ((price - float(hist["Close"].iloc[-132])) / float(hist["Close"].iloc[-132]) * 100) if n > 132 else None
+        parts = [(v, w) for v, w in [(mom_1m, 0.30), (mom_3m, 0.40), (mom_6m, 0.30)] if v is not None]
+        mom = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else 0.0
 
-        # ── 12. Intraday 4-uurs timeframe (live modus, Premium) ──
+        # ── 12. Williams %R en ADX per timeframe ──
+        williams_intraday = williams_daily = williams_weekly = williams_monthly = None
+        adx_intraday = adx_daily = adx_weekly = adx_monthly = None
+
+        if not historical_mode:
+            for tf_name, tf_key in [("daily", "daily"), ("weekly", "weekly"), ("monthly", "monthly")]:
+                w_data = _fetch_indicator(ticker, "williams", 14, tf_key, 3)
+                if w_data:
+                    raw = w_data[0].get("Williams") or w_data[0].get("williams")
+                    if tf_name == "daily":   williams_daily   = float(raw) if raw is not None else None
+                    elif tf_name == "weekly":  williams_weekly  = float(raw) if raw is not None else None
+                    elif tf_name == "monthly": williams_monthly = float(raw) if raw is not None else None
+                adx_data = _fetch_indicator(ticker, "adx", 14, tf_key, 3)
+                if adx_data:
+                    raw = adx_data[0].get("adx") or adx_data[0].get("ADX")
+                    if tf_name == "daily":   adx_daily   = float(raw) if raw is not None else None
+                    elif tf_name == "weekly":  adx_weekly  = float(raw) if raw is not None else None
+                    elif tf_name == "monthly": adx_monthly = float(raw) if raw is not None else None
+            # Fallback: bereken ADX wekelijks lokaal als API geen weekly-data levert (FMP ondersteunt 1week niet)
+            if adx_weekly is None:
+                hi_w = hist["high"].resample("W").max()
+                lo_w = hist["low"].resample("W").min()
+                adx_w = _calc_adx_local(hi_w, lo_w, hist_w)
+                adx_weekly = float(adx_w.dropna().iloc[-1]) if len(adx_w.dropna()) > 0 else None
+        else:
+            # Historische modus: lokale berekening uit EOD-data
+            hi_d  = hist["high"]
+            lo_d  = hist["low"]
+            cl_d  = hist["Close"]
+            hi_w  = hist["high"].resample("W").max()
+            lo_w  = hist["low"].resample("W").min()
+            cl_w  = hist_w
+            hi_m  = hist["high"].resample("ME").max()
+            lo_m  = hist["low"].resample("ME").min()
+            cl_m  = hist_m
+
+            wr_d = _calc_williams_local(hi_d, lo_d, cl_d)
+            wr_w = _calc_williams_local(hi_w, lo_w, cl_w)
+            wr_m = _calc_williams_local(hi_m, lo_m, cl_m)
+            williams_daily   = float(wr_d.dropna().iloc[-1]) if len(wr_d.dropna()) > 0 else None
+            williams_weekly  = float(wr_w.dropna().iloc[-1]) if len(wr_w.dropna()) > 0 else None
+            williams_monthly = float(wr_m.dropna().iloc[-1]) if len(wr_m.dropna()) > 0 else None
+
+            adx_d = _calc_adx_local(hi_d, lo_d, cl_d)
+            adx_w = _calc_adx_local(hi_w, lo_w, cl_w)
+            adx_m = _calc_adx_local(hi_m, lo_m, cl_m)
+            adx_daily   = float(adx_d.dropna().iloc[-1]) if len(adx_d.dropna()) > 0 else None
+            adx_weekly  = float(adx_w.dropna().iloc[-1]) if len(adx_w.dropna()) > 0 else None
+            adx_monthly = float(adx_m.dropna().iloc[-1]) if len(adx_m.dropna()) > 0 else None
+
+        # ── 13. Intraday 4-uurs timeframe (live modus, Premium) ──
         rsi_intraday = rsi_div_intraday = ma20_intraday = None
         apz_up_intraday = apz_lo_intraday = None
         intraday_history = []
@@ -769,7 +950,17 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
                 if len(intraday_df) >= 20:
                     _, apz_up_intraday, apz_lo_intraday = calc_apz(intraday_df["Close"])
 
-        # ── 13. RSI-waarden voor chart-overlay (lokale berekening op volledige history) ──
+                # Williams %R en ADX intraday
+                w_4h = _fetch_indicator(ticker, "williams", 14, "4hour", 3)
+                if w_4h:
+                    raw = w_4h[0].get("Williams") or w_4h[0].get("williams")
+                    williams_intraday = float(raw) if raw is not None else None
+                adx_4h = _fetch_indicator(ticker, "adx", 14, "4hour", 3)
+                if adx_4h:
+                    raw = adx_4h[0].get("adx") or adx_4h[0].get("ADX")
+                    adx_intraday = float(raw) if raw is not None else None
+
+        # ── 14. RSI-waarden voor chart-overlay (lokale berekening op volledige history) ──
         rsi_hist_series = _calc_rsi_local(hist["Close"])
         rsi_history: dict = {
             str(idx.date()): round(float(v), 1)
@@ -777,7 +968,7 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             if not pd.isna(v)
         }
 
-        # ── 14. MA-waarden voor chart-overlay (limit=500 ≈ 2 jaar) ──
+        # ── 15. MA-waarden voor chart-overlay (limit=500 ≈ 2 jaar) ──
         ma20_history: dict = {}
         ma200_history: dict = {}
         if not historical_mode:
@@ -847,7 +1038,18 @@ def fetch_stock_data(ticker: str, as_of_date: str = None) -> dict:
             "peg_ratio":            _r(peg, 2),
             "price_fcf":            _r(pfcf, 2),
             "historical_avg_pfcf":  _r(hist_pfcf, 2),
-            "dcf_fair_value":       _r(dcf_fv, 2),
+            "analyst_target":       _r(analyst_target, 2),
+            "n_analysts":           n_analysts,
+            # Williams %R per timeframe
+            "williams_daily":       _r(williams_daily, 1),
+            "williams_weekly":      _r(williams_weekly, 1),
+            "williams_monthly":     _r(williams_monthly, 1),
+            "williams_intraday":    _r(williams_intraday, 1),
+            # ADX per timeframe
+            "adx_daily":            _r(adx_daily, 1),
+            "adx_weekly":           _r(adx_weekly, 1),
+            "adx_monthly":          _r(adx_monthly, 1),
+            "adx_intraday":         _r(adx_intraday, 1),
             "fundamentals_unavailable": historical_mode,
             "ohlc_day":             ohlc_day,
             # Koersgeschiedenis met MA-overlay voor grafiek
@@ -883,43 +1085,46 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
     # Gebruik sector_return uit de data (live sectordata), val terug op parameter
     eff_sector = data.get("sector_return", sector_momentum)
 
-    def tf_score(rsi_val, ma20_val, rsi_div, apz_lo, apz_up):
-        r    = score_rsi(rsi_val)
-        m20  = score_ma20(p, ma20_val)
-        ma   = score_ma200(p, data["ma200"])
-        fpe  = score_forward_pe(data["forward_pe"], data["historical_avg_pe"])
-        peg  = score_peg(data["peg_ratio"])
-        pf   = score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"])
-        mom  = score_momentum(data["momentum_1m"], eff_sector)
-        dcf  = score_dcf(p, data["dcf_fair_value"])
-        pan  = score_panic(data["bb_pct_b"], data["vol_spike"])
-        div  = score_rsi_divergence(rsi_div)
-        apz  = score_apz(p, apz_lo, apz_up)
-        return (r   * INDICATOR_WEIGHTS["rsi"] +
-                m20 * INDICATOR_WEIGHTS["ma20"] +
-                ma  * INDICATOR_WEIGHTS["ma200"] +
-                fpe * INDICATOR_WEIGHTS["forward_pe"] +
-                peg * INDICATOR_WEIGHTS["peg"] +
-                pf  * INDICATOR_WEIGHTS["price_fcf"] +
-                mom * INDICATOR_WEIGHTS["momentum"] +
-                dcf * INDICATOR_WEIGHTS["dcf_discount"] +
-                pan * INDICATOR_WEIGHTS["panic"] +
-                div * INDICATOR_WEIGHTS["rsi_divergence"] +
-                apz * INDICATOR_WEIGHTS["apz"])
+    def tf_score(rsi_val, ma20_val, rsi_div, apz_lo, apz_up, williams_val, adx_val):
+        scores = {
+            "rsi":             score_rsi(rsi_val),
+            "ma20":            score_ma20(p, ma20_val),
+            "ma200":           score_ma200(p, data["ma200"]),
+            "forward_pe":      score_forward_pe(data["forward_pe"], data["historical_avg_pe"]),
+            "peg":             score_peg(data["peg_ratio"]),
+            "price_fcf":       score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]),
+            "momentum":        score_momentum(data["momentum_1m"], eff_sector),
+            "analyst_target":  score_analyst_target(p, data.get("analyst_target"), data.get("n_analysts", 0)),
+            "panic":           score_panic(data["bb_pct_b"], data["vol_spike"]),
+            "rsi_divergence":  score_rsi_divergence(rsi_div, rsi_val, data["momentum_1m"]),
+            "apz":             score_apz(p, apz_lo, apz_up),
+            "williams":        score_williams(williams_val),
+            "adx":             score_adx(adx_val),
+        }
+        # Herverdeelt gewicht over beschikbare indicatoren (None = niet beschikbaar)
+        available = {k: v for k, v in scores.items() if v is not None}
+        total_weight = sum(INDICATOR_WEIGHTS[k] for k in available)
+        if total_weight <= 0:
+            return 50.0
+        return sum(available[k] * INDICATOR_WEIGHTS[k] for k in available) / total_weight
 
     # Scores per timeframe
     ins = tf_score(data.get("rsi_intraday"),  data.get("ma20_intraday"),
                    data.get("rsi_divergence_intraday", "NEUTRAAL"),
-                   data.get("apz_lower_intraday"), data.get("apz_upper_intraday"))
+                   data.get("apz_lower_intraday"), data.get("apz_upper_intraday"),
+                   data.get("williams_intraday"), data.get("adx_intraday"))
     ds  = tf_score(data["rsi_daily"],   data["ma20_daily"],
                    data["rsi_divergence_daily"],
-                   data["apz_lower_daily"],   data["apz_upper_daily"])
+                   data["apz_lower_daily"],   data["apz_upper_daily"],
+                   data.get("williams_daily"), data.get("adx_daily"))
     ws  = tf_score(data["rsi_weekly"],  data["ma20_weekly"],
                    data["rsi_divergence_weekly"],
-                   data["apz_lower_weekly"],  data["apz_upper_weekly"])
+                   data["apz_lower_weekly"],  data["apz_upper_weekly"],
+                   data.get("williams_weekly"), data.get("adx_weekly"))
     ms  = tf_score(data["rsi_monthly"], data["ma20_monthly"],
                    data["rsi_divergence_monthly"],
-                   data["apz_lower_monthly"], data["apz_upper_monthly"])
+                   data["apz_lower_monthly"], data["apz_upper_monthly"],
+                   data.get("williams_monthly"), data.get("adx_monthly"))
 
     total  = (ins * TIMEFRAME_WEIGHTS["intraday"] +
               ds  * TIMEFRAME_WEIGHTS["daily"] +
@@ -927,13 +1132,24 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
               ms  * TIMEFRAME_WEIGHTS["monthly"])
     signal = "KOOP" if total >= 65 else "UITSTAP" if total < 45 else "NEUTRAAL"
 
+    # Capitulatie alert: extreme kortetermijn oversold op meerdere indicatoren tegelijk
+    rsi_d_val      = data.get("rsi_daily")
+    williams_d_val = data.get("williams_daily")
+    bb_val         = data.get("bb_pct_b")
+    capitulatie_alert = (
+        rsi_d_val      is not None and rsi_d_val      < 30   and
+        williams_d_val is not None and williams_d_val < -90  and
+        bb_val         is not None and bb_val          < 0.2
+    )
+
     return {
         "ticker":        data["ticker"],
         "name":          data["name"],
         "current_price": p,
         "currency":      data["currency"],
-        "total_score":   round(total, 1),
-        "signal":        signal,
+        "total_score":        round(total, 1),
+        "signal":             signal,
+        "capitulatie_alert":  capitulatie_alert,
         "scores_by_timeframe": {
             "intraday": round(ins, 1),
             "daily":    round(ds, 1),
@@ -941,39 +1157,47 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
             "monthly":  round(ms, 1),
         },
         "indicator_scores": {
-            "rsi_daily":              round(score_rsi(data["rsi_daily"]), 1),
-            "rsi_weekly":             round(score_rsi(data["rsi_weekly"]), 1),
-            "rsi_monthly":            round(score_rsi(data["rsi_monthly"]), 1),
-            "rsi_intraday":           round(score_rsi(data.get("rsi_intraday")), 1),
-            "rsi_divergence_daily":   round(score_rsi_divergence(data["rsi_divergence_daily"]), 1),
-            "rsi_divergence_weekly":  round(score_rsi_divergence(data["rsi_divergence_weekly"]), 1),
-            "rsi_divergence_monthly": round(score_rsi_divergence(data["rsi_divergence_monthly"]), 1),
-            "rsi_divergence_intraday":round(score_rsi_divergence(data.get("rsi_divergence_intraday", "NEUTRAAL")), 1),
-            "ma20_daily":             round(score_ma20(p, data["ma20_daily"]), 1),
-            "ma20_weekly":            round(score_ma20(p, data["ma20_weekly"]), 1),
-            "ma20_monthly":           round(score_ma20(p, data["ma20_monthly"]), 1),
-            "ma20_intraday":          round(score_ma20(p, data.get("ma20_intraday")), 1),
-            "ma200":                  round(score_ma200(p, data["ma200"]), 1),
-            "apz_daily":              round(score_apz(p, data["apz_lower_daily"],    data["apz_upper_daily"]), 1),
-            "apz_weekly":             round(score_apz(p, data["apz_lower_weekly"],   data["apz_upper_weekly"]), 1),
-            "apz_monthly":            round(score_apz(p, data["apz_lower_monthly"],  data["apz_upper_monthly"]), 1),
-            "apz_intraday":           round(score_apz(p, data.get("apz_lower_intraday"), data.get("apz_upper_intraday")), 1),
-            "forward_pe":             round(score_forward_pe(data["forward_pe"], data["historical_avg_pe"]), 1),
-            "peg":                    round(score_peg(data["peg_ratio"]), 1),
-            "price_fcf":              round(score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]), 1),
-            "momentum":               round(score_momentum(data["momentum_1m"], eff_sector), 1),
-            "dcf_discount":           round(score_dcf(p, data["dcf_fair_value"]), 1),
-            "panic":                  round(score_panic(data["bb_pct_b"], data["vol_spike"]), 1),
+            "rsi_daily":              _r(score_rsi(data["rsi_daily"]), 1),
+            "rsi_weekly":             _r(score_rsi(data["rsi_weekly"]), 1),
+            "rsi_monthly":            _r(score_rsi(data["rsi_monthly"]), 1),
+            "rsi_intraday":           _r(score_rsi(data.get("rsi_intraday")), 1),
+            "rsi_divergence_daily":   _r(score_rsi_divergence(data["rsi_divergence_daily"],   data["rsi_daily"],          data["momentum_1m"]), 1),
+            "rsi_divergence_weekly":  _r(score_rsi_divergence(data["rsi_divergence_weekly"],  data["rsi_weekly"],         data["momentum_1m"]), 1),
+            "rsi_divergence_monthly": _r(score_rsi_divergence(data["rsi_divergence_monthly"], data["rsi_monthly"],        data["momentum_1m"]), 1),
+            "rsi_divergence_intraday":_r(score_rsi_divergence(data.get("rsi_divergence_intraday", "NEUTRAAL"), data.get("rsi_intraday"), data["momentum_1m"]), 1),
+            "ma20_daily":             _r(score_ma20(p, data["ma20_daily"]), 1),
+            "ma20_weekly":            _r(score_ma20(p, data["ma20_weekly"]), 1),
+            "ma20_monthly":           _r(score_ma20(p, data["ma20_monthly"]), 1),
+            "ma20_intraday":          _r(score_ma20(p, data.get("ma20_intraday")), 1),
+            "ma200":                  _r(score_ma200(p, data["ma200"]), 1),
+            "apz_daily":              _r(score_apz(p, data["apz_lower_daily"],    data["apz_upper_daily"]), 1),
+            "apz_weekly":             _r(score_apz(p, data["apz_lower_weekly"],   data["apz_upper_weekly"]), 1),
+            "apz_monthly":            _r(score_apz(p, data["apz_lower_monthly"],  data["apz_upper_monthly"]), 1),
+            "apz_intraday":           _r(score_apz(p, data.get("apz_lower_intraday"), data.get("apz_upper_intraday")), 1),
+            "forward_pe":             _r(score_forward_pe(data["forward_pe"], data["historical_avg_pe"]), 1),
+            "peg":                    _r(score_peg(data["peg_ratio"]), 1),
+            "price_fcf":              _r(score_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]), 1),
+            "momentum":               _r(score_momentum(data["momentum_1m"], eff_sector), 1),
+            "analyst_target":         score_analyst_target(p, data.get("analyst_target"), data.get("n_analysts", 0)),
+            "panic":                  _r(score_panic(data["bb_pct_b"], data["vol_spike"]), 1),
+            "williams_intraday":      score_williams(data.get("williams_intraday")),
+            "williams_daily":         score_williams(data.get("williams_daily")),
+            "williams_weekly":        score_williams(data.get("williams_weekly")),
+            "williams_monthly":       score_williams(data.get("williams_monthly")),
+            "adx_intraday":           score_adx(data.get("adx_intraday")),
+            "adx_daily":              score_adx(data.get("adx_daily")),
+            "adx_weekly":             score_adx(data.get("adx_weekly")),
+            "adx_monthly":            score_adx(data.get("adx_monthly")),
         },
         "interpretations": {
             "rsi_daily":              _with_meta(_interp_rsi(data["rsi_daily"],      "dagelijks"),   "rsi"),
             "rsi_weekly":             _with_meta(_interp_rsi(data["rsi_weekly"],     "wekelijks"),   "rsi"),
             "rsi_monthly":            _with_meta(_interp_rsi(data["rsi_monthly"],    "maandelijks"), "rsi"),
             "rsi_intraday":           _with_meta(_interp_rsi(data.get("rsi_intraday"), "4-uurs"),    "rsi"),
-            "rsi_divergence_daily":   _with_meta(_interp_divergence(data["rsi_divergence_daily"],    "dagelijks"),   "rsi_divergence"),
-            "rsi_divergence_weekly":  _with_meta(_interp_divergence(data["rsi_divergence_weekly"],   "wekelijks"),   "rsi_divergence"),
-            "rsi_divergence_monthly": _with_meta(_interp_divergence(data["rsi_divergence_monthly"],  "maandelijks"), "rsi_divergence"),
-            "rsi_divergence_intraday":_with_meta(_interp_divergence(data.get("rsi_divergence_intraday","NEUTRAAL"), "4-uurs"), "rsi_divergence"),
+            "rsi_divergence_daily":   _with_meta(_interp_divergence(data["rsi_divergence_daily"],    "dagelijks",   data["rsi_daily"],          data["momentum_1m"]), "rsi_divergence"),
+            "rsi_divergence_weekly":  _with_meta(_interp_divergence(data["rsi_divergence_weekly"],   "wekelijks",   data["rsi_weekly"],         data["momentum_1m"]), "rsi_divergence"),
+            "rsi_divergence_monthly": _with_meta(_interp_divergence(data["rsi_divergence_monthly"],  "maandelijks", data["rsi_monthly"],        data["momentum_1m"]), "rsi_divergence"),
+            "rsi_divergence_intraday":_with_meta(_interp_divergence(data.get("rsi_divergence_intraday","NEUTRAAL"), "4-uurs", data.get("rsi_intraday"), data["momentum_1m"]), "rsi_divergence"),
             "ma20_daily":             _with_meta(_interp_ma(p, data["ma20_daily"],    "MA20 dagelijks"),   "ma20"),
             "ma20_weekly":            _with_meta(_interp_ma(p, data["ma20_weekly"],   "MA20 wekelijks"),   "ma20"),
             "ma20_monthly":           _with_meta(_interp_ma(p, data["ma20_monthly"],  "MA20 maandelijks"), "ma20"),
@@ -986,9 +1210,17 @@ def calculate_score(data: dict, sector_momentum: float = 0.0) -> dict:
             "forward_pe":             _with_meta(_interp_forward_pe(data["forward_pe"], data["historical_avg_pe"]),         "forward_pe"),
             "peg":                    _with_meta(_interp_peg(data["peg_ratio"]),                                             "peg"),
             "price_fcf":              _with_meta(_interp_price_fcf(data["price_fcf"], data["historical_avg_pfcf"]),         "price_fcf"),
-            "momentum":               _with_meta(_interp_momentum(data["momentum_1m"], eff_sector),                         "momentum"),
-            "dcf_discount":           _with_meta(_interp_dcf(p, data["dcf_fair_value"]),                                    "dcf_discount"),
-            "panic":                  _with_meta(_interp_panic(data["bb_pct_b"], data["vol_spike"]),                        "panic"),
+            "momentum":               _with_meta(_interp_momentum(data["momentum_1m"], eff_sector),                                           "momentum"),
+            "analyst_target":         _with_meta(_interp_analyst_target(p, data.get("analyst_target"), data.get("n_analysts", 0)),            "analyst_target"),
+            "panic":                  _with_meta(_interp_panic(data["bb_pct_b"], data["vol_spike"]),                                          "panic"),
+            "williams_intraday":      _with_meta(_interp_williams(data.get("williams_intraday"), "4-uurs"),    "williams"),
+            "williams_daily":         _with_meta(_interp_williams(data.get("williams_daily"),    "dagelijks"),  "williams"),
+            "williams_weekly":        _with_meta(_interp_williams(data.get("williams_weekly"),   "wekelijks"),  "williams"),
+            "williams_monthly":       _with_meta(_interp_williams(data.get("williams_monthly"),  "maandelijks"),"williams"),
+            "adx_intraday":           _with_meta(_interp_adx(data.get("adx_intraday"), "4-uurs"),    "adx"),
+            "adx_daily":              _with_meta(_interp_adx(data.get("adx_daily"),    "dagelijks"),  "adx"),
+            "adx_weekly":             _with_meta(_interp_adx(data.get("adx_weekly"),   "wekelijks"),  "adx"),
+            "adx_monthly":            _with_meta(_interp_adx(data.get("adx_monthly"),  "maandelijks"),"adx"),
         },
         "raw_data": data,
     }
